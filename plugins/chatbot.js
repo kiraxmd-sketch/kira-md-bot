@@ -27,128 +27,181 @@ if (!global.chatHistory) {
     global.chatHistory = {};
 }
 
-module.exports = {
-    name: 'chatbot',
-    alias: ['autoai'],
-    category: 'ai',
-    description: 'Toggle Safe & Fast AI Chatbot',
-    usage: '.chatbot on/off/delete',
+module.exports = [
+    // ==========================================
+    // 1. CHATBOT TOGGLE COMMAND
+    // ==========================================
+    {
+        name: 'chatbot',
+        alias: ['autoai'],
+        category: 'ai',
+        description: 'Toggle Safe & Fast AI Chatbot',
+        usage: '.chatbot on/off/delete',
 
-    async execute(sock, msg, args) {
-        const jid = msg.key.remoteJid;
-        const sender = msg.key.participant || msg.key.remoteJid;
-        const input = (args && args.length > 0) ? args.join(' ').toLowerCase() : '';
-        const isGroup = jid.endsWith('@g.us');
+        async execute(sock, msg, args) {
+            const jid = msg.key.remoteJid;
+            const sender = msg.key.participant || msg.key.remoteJid;
+            const input = (args && args.length > 0) ? args.join(' ').toLowerCase() : '';
+            const isGroup = jid.endsWith('@g.us');
 
-        const isOwner = msg.key.fromMe || (process.env.OWNER_NUMBER && sender.includes(process.env.OWNER_NUMBER));
-        
-        if (!isOwner) return await sock.sendMessage(jid, { text: "❌ *Only the Bot Owner can control the Chatbot!*" }, { quoted: msg });
+            const isOwner = msg.key.fromMe || (process.env.OWNER_NUMBER && sender.includes(process.env.OWNER_NUMBER));
+            
+            if (!isOwner) return await sock.sendMessage(jid, { text: "❌ *Only the Bot Owner can control the Chatbot!*" }, { quoted: msg });
 
-        if (!sock.isChatbotHooked) {
-            sock.ev.on('messages.upsert', async (m) => {
-                try {
-                    if (m.type !== 'notify') return;
-                    const autoMsg = m.messages[0];
-                    if (!autoMsg.message || autoMsg.key.fromMe) return;
+            if (!sock.isChatbotHooked) {
+                sock.ev.on('messages.upsert', async (m) => {
+                    try {
+                        if (m.type !== 'notify') return;
+                        const autoMsg = m.messages[0];
+                        if (!autoMsg.message || autoMsg.key.fromMe) return;
 
-                    const autoJid = autoMsg.key.remoteJid;
-                    const autoIsGroup = autoJid.endsWith('@g.us');
-                    
-                    const isEnabledInChat = chatDB.chats[autoJid];
-                    const isGlobalDMs = !autoIsGroup && chatDB.dms;
-                    const isGlobalGroups = autoIsGroup && chatDB.groups;
+                        const autoJid = autoMsg.key.remoteJid;
+                        const autoIsGroup = autoJid.endsWith('@g.us');
+                        
+                        const isEnabledInChat = chatDB.chats[autoJid];
+                        const isGlobalDMs = !autoIsGroup && chatDB.dms;
+                        const isGlobalGroups = autoIsGroup && chatDB.groups;
 
-                    if (!isEnabledInChat && !isGlobalDMs && !isGlobalGroups) return;
+                        if (!isEnabledInChat && !isGlobalDMs && !isGlobalGroups) return;
 
-                    const textMessage = autoMsg.message.conversation || autoMsg.message.extendedTextMessage?.text || '';
-                    if (!textMessage) return;
+                        const textMessage = autoMsg.message.conversation || autoMsg.message.extendedTextMessage?.text || '';
+                        if (!textMessage) return;
 
-                    if (/^[\\.\!\/\#]/.test(textMessage)) return; 
+                        if (/^[\\.\!\/\#]/.test(textMessage)) return; 
 
-                    if (!global.chatHistory[autoJid]) global.chatHistory[autoJid] = [];
-                    
-                    let historyText = global.chatHistory[autoJid].map(h => `${h.role === 'user' ? 'User' : 'Assistant'}: ${h.content}`).join("\n");
-                    let aiReply = null;
+                        if (!global.chatHistory[autoJid]) global.chatHistory[autoJid] = [];
+                        
+                        let historyText = global.chatHistory[autoJid].map(h => `${h.role === 'user' ? 'User' : 'Assistant'}: ${h.content}`).join("\n");
+                        let aiReply = null;
 
-                    const botNumber = sock.user.id.split(':')[0].replace(/[^0-9]/g, "");
-                    const config = getSettings(botNumber);
-                    const botName = config?.botName || process.env.BOT_NAME || 'KIRA X MD';
-                    const ownerName = config?.ownerName || process.env.OWNER_NAME || 'the owner';
+                        const botNumber = sock.user.id.split(':')[0].replace(/[^0-9]/g, "");
+                        const config = getSettings(botNumber);
+                        const botName = config?.botName || process.env.BOT_NAME || 'KIRA X MD';
+                        const ownerName = config?.ownerName || process.env.OWNER_NAME || 'the owner';
 
-                    // 🔥 വാട്സാപ്പ് വഴി സെറ്റ് ചെയ്ത കസ്റ്റം പ്രോംപ്റ്റ് ഉണ്ടോ എന്ന് നോക്കുന്നു
-                    if (!chatDB.prompts) chatDB.prompts = {};
-                    let customPrompt = chatDB.prompts[botNumber];
-                    let promptText;
+                        // 🔥 വാട്സാപ്പ് വഴി സെറ്റ് ചെയ്ത കസ്റ്റം പ്രോംപ്റ്റ് ഉണ്ടോ എന്ന് നോക്കുന്നു
+                        if (!chatDB.prompts) chatDB.prompts = {};
+                        let customPrompt = chatDB.prompts[botNumber];
+                        let promptText;
 
-                    if (customPrompt) {
-                        // കസ്റ്റം പ്രോംപ്റ്റിലെ വേരിയബിളുകൾ റീപ്ലേസ് ചെയ്യുന്നു
-                        promptText = `${customPrompt.replace(/{botName}/g, botName).replace(/{ownerName}/g, ownerName)}\n\nChat History:\n${historyText}\n\nUser: ${textMessage}\nAssistant:`;
-                    } else {
-                        // ഡിഫോൾട്ട് പ്രോംപ്റ്റ്
-                        promptText = `You are an AI assistant named ${botName}, created by ${ownerName}. STRICT LANGUAGE RULE: Reply in the EXACT SAME LANGUAGE as user. If English, reply in English. If Malayalam, reply in pure Malayalam script. Be friendly, empathetic, and casual. Keep it natural like a human conversation. Do not use robotic patterns.\n\nChat History:\n${historyText}\n\nUser: ${textMessage}\nAssistant:`;
-                    }
-
-                    const apis = [
-                        `https://eliteprotech-apis.zone.id/chatgpt?prompt=${encodeURIComponent(promptText)}`,
-                        `https://jerrycoder.oggyapi.workers.dev/ai/gemini?prompt=${encodeURIComponent(promptText)}`
-                    ];
-
-                    for (const apiUrl of apis) {
-                        try {
-                            const res = await axios.get(apiUrl, { timeout: 15000 });
-                            const data = res.data;
-
-                            if (typeof data === "string") {
-                                aiReply = data;
-                            } else {
-                                aiReply = data?.reply || data?.response || data?.result || data?.text || data?.message || "";
-                            }
-
-                            if (aiReply) break;
-                        } catch (e) {}
-                    }
-
-                    if (aiReply) {
-                        aiReply = String(aiReply).replace(/ChatGPT|Gemini|Google AI|OpenAI/gi, "AI").trim();
-
-                        global.chatHistory[autoJid].push({ role: 'user', content: textMessage });
-                        global.chatHistory[autoJid].push({ role: 'assistant', content: aiReply });
-
-                        if (global.chatHistory[autoJid].length > 6) {
-                            global.chatHistory[autoJid] = global.chatHistory[autoJid].slice(global.chatHistory[autoJid].length - 6);
+                        if (customPrompt) {
+                            // കസ്റ്റം പ്രോംപ്റ്റിലെ വേരിയബിളുകൾ റീപ്ലേസ് ചെയ്യുന്നു
+                            promptText = `${customPrompt.replace(/{botName}/g, botName).replace(/{ownerName}/g, ownerName)}\n\nChat History:\n${historyText}\n\nUser: ${textMessage}\nAssistant:`;
+                        } else {
+                            // ഡിഫോൾട്ട് പ്രോംപ്റ്റ്
+                            promptText = `You are an AI assistant named ${botName}, created by ${ownerName}. STRICT LANGUAGE RULE: Reply in the EXACT SAME LANGUAGE as user. If English, reply in English. If Malayalam, reply in pure Malayalam script. Be friendly, empathetic, and casual. Keep it natural like a human conversation. Do not use robotic patterns.\n\nChat History:\n${historyText}\n\nUser: ${textMessage}\nAssistant:`;
                         }
 
-                        await sock.presenceSubscribe(autoJid);
-                        await sock.sendPresenceUpdate('composing', autoJid);
+                        const apis = [
+                            `https://eliteprotech-apis.zone.id/chatgpt?prompt=${encodeURIComponent(promptText)}`,
+                            `https://jerrycoder.oggyapi.workers.dev/ai/gemini?prompt=${encodeURIComponent(promptText)}`
+                        ];
 
-                        setTimeout(async () => {
-                            await sock.sendMessage(autoJid, { text: aiReply }, { quoted: autoMsg });
-                            await sock.sendPresenceUpdate('paused', autoJid);
-                        }, 1000); 
-                        
+                        for (const apiUrl of apis) {
+                            try {
+                                const res = await axios.get(apiUrl, { timeout: 15000 });
+                                const data = res.data;
+
+                                if (typeof data === "string") {
+                                    aiReply = data;
+                                } else {
+                                    aiReply = data?.reply || data?.response || data?.result || data?.text || data?.message || "";
+                                }
+
+                                if (aiReply) break;
+                            } catch (e) {}
+                        }
+
+                        if (aiReply) {
+                            aiReply = String(aiReply).replace(/ChatGPT|Gemini|Google AI|OpenAI/gi, "AI").trim();
+
+                            global.chatHistory[autoJid].push({ role: 'user', content: textMessage });
+                            global.chatHistory[autoJid].push({ role: 'assistant', content: aiReply });
+
+                            if (global.chatHistory[autoJid].length > 6) {
+                                global.chatHistory[autoJid] = global.chatHistory[autoJid].slice(global.chatHistory[autoJid].length - 6);
+                            }
+
+                            await sock.presenceSubscribe(autoJid);
+                            await sock.sendPresenceUpdate('composing', autoJid);
+
+                            setTimeout(async () => {
+                                await sock.sendMessage(autoJid, { text: aiReply }, { quoted: autoMsg });
+                                await sock.sendPresenceUpdate('paused', autoJid);
+                            }, 1000); 
+                            
+                        }
+                    } catch (err) {
+                        console.error("Chatbot background error handled smoothly.");
                     }
-                } catch (err) {
-                    console.error("Chatbot background error handled smoothly.");
-                }
-            });
-            sock.isChatbotHooked = true;
-            console.log(`✨ Chatbot Activated Smoothly for bot: ${sock.user.id.split(':')[0]}`);
-        }
+                });
+                sock.isChatbotHooked = true;
+                console.log(`✨ Chatbot Activated Smoothly for bot: ${sock.user.id.split(':')[0]}`);
+            }
 
-        if (!input) {
-            return await sock.sendMessage(jid, { text: `🤖 *SAFE & SMOOTH CHATBOT*\n\n➤ \`.chatbot on\` / \`.chatbot off\`\n➤ \`.chatbot delete\`\n\n*Status here:* ${chatDB.chats[jid] ? "ON ✅" : "OFF ❌"}` }, { quoted: msg });
-        }
+            if (!input) {
+                return await sock.sendMessage(jid, { text: `🤖 *SAFE & SMOOTH CHATBOT*\n\n➤ \`.chatbot on\` / \`.chatbot off\`\n➤ \`.chatbot delete\`\n\n*Status here:* ${chatDB.chats[jid] ? "ON ✅" : "OFF ❌"}` }, { quoted: msg });
+            }
 
-        if (input === 'delete' || input === 'clear') {
-            global.chatHistory[jid] = [];
-            return await sock.sendMessage(jid, { text: "🧹 *AI Memory Cleared for this chat!*" }, { quoted: msg });
-        }
+            if (input === 'delete' || input === 'clear') {
+                global.chatHistory[jid] = [];
+                return await sock.sendMessage(jid, { text: "🧹 *AI Memory Cleared for this chat!*" }, { quoted: msg });
+            }
 
-        if (input === 'on dms') { chatDB.dms = true; saveDB(); return sock.sendMessage(jid, { text: "✅ Chatbot ON for ALL DMs!" }); }
-        if (input === 'off dms') { chatDB.dms = false; saveDB(); return sock.sendMessage(jid, { text: "❌ Chatbot OFF for ALL DMs!" }); }
-        if (input === 'on groups') { chatDB.groups = true; saveDB(); return sock.sendMessage(jid, { text: "✅ Chatbot ON for ALL GROUPS!" }); }
-        if (input === 'off groups') { chatDB.groups = false; saveDB(); return sock.sendMessage(jid, { text: "❌ Chatbot OFF for ALL GROUPS!" }); }
-        if (input === 'on') { chatDB.chats[jid] = true; saveDB(); return sock.sendMessage(jid, { text: `✅ Chatbot turned ON for this chat!` }); }
-        if (input === 'off') { chatDB.chats[jid] = false; saveDB(); return sock.sendMessage(jid, { text: `✅ Chatbot turned OFF for this chat!` }); }
+            if (input === 'on dms') { chatDB.dms = true; saveDB(); return sock.sendMessage(jid, { text: "✅ Chatbot ON for ALL DMs!" }); }
+            if (input === 'off dms') { chatDB.dms = false; saveDB(); return sock.sendMessage(jid, { text: "❌ Chatbot OFF for ALL DMs!" }); }
+            if (input === 'on groups') { chatDB.groups = true; saveDB(); return sock.sendMessage(jid, { text: "✅ Chatbot ON for ALL GROUPS!" }); }
+            if (input === 'off groups') { chatDB.groups = false; saveDB(); return sock.sendMessage(jid, { text: "❌ Chatbot OFF for ALL GROUPS!" }); }
+            if (input === 'on') { chatDB.chats[jid] = true; saveDB(); return sock.sendMessage(jid, { text: `✅ Chatbot turned ON for this chat!` }); }
+            if (input === 'off') { chatDB.chats[jid] = false; saveDB(); return sock.sendMessage(jid, { text: `✅ Chatbot turned OFF for this chat!` }); }
+        }
+    },
+
+    // ==========================================
+    // 2. CHATBOT PROMPT SETTER
+    // ==========================================
+    {
+        name: 'chatbotprompt',
+        alias: ['setprompt'],
+        category: 'ai', // മെനുവിൽ AI കാറ്റഗറിയിൽ കാണിക്കും
+        description: 'Set custom prompt for AI Chatbot',
+        usage: '.chatbotprompt <your prompt>',
+
+        async execute(sock, msg, args) {
+            const jid = msg.key.remoteJid;
+            const sender = msg.key.participant || msg.key.remoteJid;
+            
+            // ഓണർ ചെക്കിങ്
+            const isOwner = msg.key.fromMe || (process.env.OWNER_NUMBER && sender.includes(process.env.OWNER_NUMBER));
+            if (!isOwner) return await sock.sendMessage(jid, { text: "❌ *Owner only!*" }, { quoted: msg });
+
+            const botNumber = sock.user.id.split(':')[0].replace(/[^0-9]/g, "");
+            const newPrompt = args.join(' ').trim();
+
+            if (!chatDB.prompts) chatDB.prompts = {};
+
+            // കമാൻഡ് മാത്രം അടിച്ചാൽ നിലവിലെ പ്രോംപ്റ്റ് കാണിക്കും
+            if (!newPrompt) {
+                const currentPrompt = chatDB.prompts[botNumber] || "Default KIRA Prompt";
+                return await sock.sendMessage(jid, { 
+                    text: `🤖 *CURRENT PROMPT*\n\n${currentPrompt}\n\n*To change:* .chatbotprompt <new prompt>\n*To reset:* .chatbotprompt reset` 
+                }, { quoted: msg });
+            }
+
+            // Reset അടിച്ചാൽ ഡിഫോൾട്ട് ആകും
+            if (newPrompt.toLowerCase() === 'reset') {
+                delete chatDB.prompts[botNumber];
+                saveDB();
+                return await sock.sendMessage(jid, { text: "✅ *Prompt reset to default successfully!*" }, { quoted: msg });
+            }
+
+            // പുതിയ പ്രോംപ്റ്റ് സേവ് ചെയ്യുന്നു
+            chatDB.prompts[botNumber] = newPrompt;
+            saveDB();
+
+            await sock.sendMessage(jid, { 
+                text: `✅ *Custom Prompt Set Successfully!*\n\n📝 New Prompt: ${newPrompt}` 
+            }, { quoted: msg });
+        }
     }
-};
+];

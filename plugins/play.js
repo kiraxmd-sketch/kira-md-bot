@@ -1,4 +1,4 @@
-// plugins/play.js – KIRA X MD (Ultra Fast Audio Downloader with ID3 Tags & API Fallback)
+// plugins/play.js – KIRA X MD (Ultra Fast Audio Downloader - Ultimate Anti-Bot Bypass)
 const ytSearch = require('yt-search');
 const axios = require('axios');
 const fs = require('fs');
@@ -11,6 +11,8 @@ const ffmpegPath = path.join(__dirname, '../ffmpeg.exe');
 if (fs.existsSync(ffmpegPath)) {
     ffmpeg.setFfmpegPath(ffmpegPath);
 }
+
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 module.exports = {
     name: 'play',
@@ -32,22 +34,17 @@ module.exports = {
         let statusMsg = null;
 
         try {
-            // Fetch Bot & Owner names dynamically
             const botNumber = sock.user?.id?.split(':')[0]?.replace(/[^0-9]/g, "") || "";
             const settings = typeof getSettings === 'function' ? (getSettings(botNumber) || {}) : {};
             const botName = settings.botName || process.env.BOT_NAME || global.config?.BOT_NAME || 'KIRA X MD';
             const ownerName = settings.ownerName || process.env.OWNER_NAME || global.config?.OWNER_NAME || 'Madhav';
 
-            // 1. SEND SEARCHING MESSAGE
-            statusMsg = await sock.sendMessage(jid, {
-                text: `*Searching* : \`${query}\``
-            }, { quoted: msg });
+            statusMsg = await sock.sendMessage(jid, { text: `*Searching* : \`${query}\`` }, { quoted: msg });
 
             let url = null;
             let youtubeId = null;
             let songInfo = null;
 
-            // EXTRACT YOUTUBE ID
             const shortMatch = query.match(/youtu\.be\/([a-zA-Z0-9_-]{11})/);
             if (shortMatch) {
                 youtubeId = shortMatch[1];
@@ -62,12 +59,9 @@ module.exports = {
                 }
             }
 
-            // SEARCH YOUTUBE
             if (!youtubeId) {
                 const search = await ytSearch(query);
-                if (!search?.videos?.length) {
-                    throw new Error("No results found on YouTube.");
-                }
+                if (!search?.videos?.length) throw new Error("No results found on YouTube.");
                 songInfo = search.videos[0];
                 url = songInfo.url;
             } else {
@@ -75,120 +69,103 @@ module.exports = {
                     const info = await ytSearch({ videoId: youtubeId });
                     if (info) songInfo = info;
                 } catch {}
-
-                if (!songInfo) {
-                    songInfo = {
-                        title: query,
-                        author: { name: ownerName }
-                    };
-                }
+                if (!songInfo) songInfo = { title: query, author: { name: ownerName } };
             }
 
-            const title = songInfo?.title || "Unknown Song";
-            const artist = songInfo?.author?.name || ownerName;
+            let title = songInfo?.title || "Unknown Song";
+            let artist = songInfo?.author?.name || ownerName;
+            
+            title = title.replace(/["']/g, '');
+            artist = artist.replace(/["']/g, '');
 
-            // 2. SONG DETAILS & DOWNLOADING MSG
             if (statusMsg?.key) {
-                await sock.sendMessage(jid, { 
-                    text: `*Downloading* : ${title} | ${artist}`,
-                    edit: statusMsg.key 
-                });
+                await sock.sendMessage(jid, { text: `*Downloading* : ${title} | ${artist}`, edit: statusMsg.key });
             }
 
-            // 🔥 API LIST: Xenoytdl & Kira APIs First, followed by fallbacks
-            const apis = [
-                `https://xenoytdl-2.vercel.app/api/youtube?url=${encodeURIComponent(url)}`,
-                `https://kiraxmd-api.vercel.app/api/play?query=${encodeURIComponent(url)}`,
-                `https://eliteprotech-apis.zone.id/download/ytmp3?url=${encodeURIComponent(url)}`,
-                `https://jerrycoder.oggyapi.workers.dev/down/ytmp3-v1?url=${encodeURIComponent(url)}`,
-                `https://api.siputzx.my.id/api/d/ytmp3?url=${encodeURIComponent(url)}`
-            ];
-
-            let finalBuffer = null;
-
-            // FALLBACK API LOOP
-            for (const api of apis) {
-                try {
-                    const res = await axios.get(api, {
-                        timeout: 12000,
-                        headers: { "User-Agent": "Mozilla/5.0" }
-                    });
-                    const data = res.data;
-
-                    const candidate =
-                        data?.result?.mp3 ||
-                        data?.result?.url ||
-                        data?.data?.dl ||
-                        data?.data?.download ||
-                        data?.download ||
-                        data?.url ||
-                        data?.result?.download_url ||
-                        data?.result?.audio ||
-                        (typeof data?.result === "string" ? data.result : null);
-
-                    if (candidate && typeof candidate === "string" && candidate.startsWith("http")) {
-                        const audioResponse = await axios.get(candidate, {
-                            responseType: "arraybuffer",
-                            timeout: 20000,
-                            headers: { "User-Agent": "Mozilla/5.0" }
-                        });
-                        
-                        if (audioResponse.status === 200 && audioResponse.data) {
-                            finalBuffer = Buffer.from(audioResponse.data);
-                            break; // Success! Exit loop.
-                        }
-                    }
-                } catch (err) {
-                    continue; // If this API fails, automatically try the next one!
-                }
-            }
-
-            if (!finalBuffer) {
-                throw new Error("All servers are busy. Could not fetch the audio track.");
-            }
-
-            // ─────────────────────────────────────
-            // FFMPEG METADATA TAGGING (WITH SAFE FALLBACK)
-            // ─────────────────────────────────────
             const tempDir = path.join(__dirname, "../temp");
             if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
 
             const inputPath = path.join(tempDir, `play_in_${Date.now()}.mp3`);
             const outputPath = path.join(tempDir, `play_out_${Date.now()}.mp3`);
-            let sendBuffer = finalBuffer; // Default to untagged buffer
+            
+            let downloadedToDisk = false;
+
+            // Priority API List
+            const apis = [
+                `https://kiraxmd-api.vercel.app/api/play?query=${encodeURIComponent(url)}`,
+                `https://kiraxmd-api.vercel.app/api/play?url=${encodeURIComponent(url)}`,
+                `https://xenoytdl-2.vercel.app/api/youtube?url=${encodeURIComponent(url)}&format=mp3`,
+                `https://jerrycoder.oggyapi.workers.dev/down/ytmp3-v1?url=${encodeURIComponent(url)}`,
+                `https://jerrycoder.oggyapi.workers.dev/down/ytmp3?url=${encodeURIComponent(url)}`
+            ];
+
+            // 10 Retries per API with 20 seconds timeout and 3s gap
+            for (const api of apis) {
+                if (downloadedToDisk) break;
+                
+                for (let i = 0; i < 10; i++) {
+                    try {
+                        const res = await axios.get(api, { timeout: 20000, headers: { "User-Agent": "Mozilla/5.0" } });
+                        const candidate = res.data?.result?.mp3 || res.data?.result?.url || res.data?.data?.dl || res.data?.data?.download || res.data?.download || res.data?.url || (typeof res.data?.result === "string" ? res.data.result : null) || (typeof res.data === "string" ? res.data : null);
+
+                        if (candidate && typeof candidate === "string" && candidate.startsWith("http")) {
+                            const audioResponse = await axios.get(candidate, { responseType: "arraybuffer", timeout: 20000 });
+                            if (audioResponse.status === 200 && audioResponse.data) {
+                                fs.writeFileSync(inputPath, Buffer.from(audioResponse.data));
+                                downloadedToDisk = true;
+                                break; 
+                            }
+                        }
+                    } catch (err) {}
+
+                    if (!downloadedToDisk && i < 9) {
+                        await sleep(3000); 
+                    }
+                }
+            }
+
+            if (!downloadedToDisk) {
+                throw new Error("All servers are temporarily blocked by YouTube. Please try again later.");
+            }
+
+            // ─────────────────────────────────────
+            // FFMPEG METADATA TAGGING
+            // ─────────────────────────────────────
+            let sendBuffer = null;
 
             try {
-                fs.writeFileSync(inputPath, finalBuffer);
-
                 await new Promise((resolve, reject) => {
                     ffmpeg(inputPath)
                         .audioBitrate(128)
                         .outputOptions([
-                            '-metadata', `title=${title}`, 
-                            '-metadata', `artist=${artist}`,    
-                            '-metadata', `album=${botName}`
+                            `-metadata`, `title=${title}`, 
+                            `-metadata`, `artist=${artist}`,    
+                            `-metadata`, `album=${botName}`
                         ])
                         .on("end", () => {
                             if (fs.existsSync(outputPath)) {
-                                sendBuffer = fs.readFileSync(outputPath); // Update to tagged buffer
+                                sendBuffer = fs.readFileSync(outputPath); 
                             }
                             resolve();
                         })
                         .on("error", (err) => {
-                            console.error("FFmpeg Tagging Failed (Skipping Tags):", err.message);
-                            resolve(); // Resolve anyway so it doesn't crash!
+                            if (fs.existsSync(inputPath)) {
+                                sendBuffer = fs.readFileSync(inputPath); 
+                            }
+                            resolve(); 
                         })
                         .save(outputPath);
                 });
-            } catch (ffmpegErr) {
-                console.error("FFmpeg Process Error:", ffmpegErr.message);
+            } catch (err) {
+                if (fs.existsSync(inputPath)) sendBuffer = fs.readFileSync(inputPath);
             } finally {
-                // Cleanup Temp Files
                 try {
                     if (fs.existsSync(inputPath)) fs.unlinkSync(inputPath);
                     if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
                 } catch (e) {}
             }
+
+            if (!sendBuffer) throw new Error("Final audio processing failed.");
 
             // ─────────────────────────────────────
             // SEND AUDIO TO WHATSAPP
@@ -200,33 +177,22 @@ module.exports = {
                 fileName: `${title.replace(/[^a-zA-Z0-9 ]/g, '')}.mp3`
             }, { quoted: msg });
 
-            // 3. EDIT STATUS TO DOWNLOADED
             if (statusMsg?.key) {
                 try {
-                    await sock.sendMessage(jid, { 
-                        text: `*Downloaded* : ${title} | ${artist}`,
-                        edit: statusMsg.key 
-                    });
+                    await sock.sendMessage(jid, { text: `*Downloaded* : ${title} | ${artist}`, edit: statusMsg.key });
                 } catch {}
             }
 
         } catch (err) {
-            console.error("PLAY ERROR:", err.message);
-            const errorText = `*Download Failed* : \n\n${err.message || "An unexpected error occurred."}`;
+            const errorText = `*Download Failed* : \n\n${err.message}`;
 
             if (statusMsg?.key) {
                 try {
-                    await sock.sendMessage(jid, {
-                        text: errorText,
-                        edit: statusMsg.key 
-                    });
+                    await sock.sendMessage(jid, { text: errorText, edit: statusMsg.key });
                     return;
                 } catch {}
             }
-
-            try {
-                await sock.sendMessage(jid, { text: errorText }, { quoted: msg });
-            } catch {}
+            try { await sock.sendMessage(jid, { text: errorText }, { quoted: msg }); } catch {}
         }
     }
 };

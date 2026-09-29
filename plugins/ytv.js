@@ -1,4 +1,8 @@
+// plugins/ytv.js - KIRA X MD (YouTube Video Downloader with 60MB limit check)
 const axios = require("axios");
+
+// Sleep function for retries
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 module.exports = {
     name: "ytv",
@@ -14,7 +18,6 @@ module.exports = {
         let url = args.join(" ").trim();
 
         if (!url) {
-            // Check if replying to a message
             const quoted = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
             if (quoted) {
                 const quotedText =
@@ -35,66 +38,92 @@ module.exports = {
         }
 
         try {
-            await sock.sendMessage(jid, {
-                react: { text: "⏳", key: msg.key }
-            });
+            await sock.sendMessage(jid, { react: { text: "⏳", key: msg.key } });
 
-            // ─── APIs (NEW API ADDED FIRST) ───
+            // ─── APIs (Fastest APIs Priority) ───
             const apis = [
-                `https://api-aswin-sparky.koyeb.app/api/downloader/ytv?url=${encodeURIComponent(url)}`,
+                `https://eliteprotech-apis.zone.id/download/ytmp4?url=${encodeURIComponent(url)}`,
+                `https://jerrycoder.oggyapi.workers.dev/down/ytmp4?url=${encodeURIComponent(url)}`,
                 `https://jerrycoder.oggyapi.workers.dev/down/ytmp4-v1?url=${encodeURIComponent(url)}`,
-                `https://eliteprotech-apis.zone.id/ytmp4?url=${encodeURIComponent(url)}`
+                `https://api-aswin-sparky.koyeb.app/api/downloader/ytv?url=${encodeURIComponent(url)}`
             ];
 
-            let video = null;
+            let videoUrl = null;
             let title = "YouTube Video";
+            let success = false;
 
             for (const api of apis) {
-                try {
-                    const { data } = await axios.get(api, { timeout: 15000 });
-                    
-                    video =
-                        data?.data?.url ||
-                        data?.data?.dl ||
-                        data?.result?.url ||
-                        data?.result?.video ||
-                        data?.url ||
-                        data?.download;
+                if (success) break;
 
-                    title =
-                        data?.data?.title ||
-                        data?.result?.title ||
-                        data?.title ||
-                        title;
+                // 3x RETRY LOGIC
+                for (let attempt = 1; attempt <= 3; attempt++) {
+                    try {
+                        const { data } = await axios.get(api, { timeout: 15000 });
+                        
+                        const candidateVideoUrl =
+                            data?.result?.url ||
+                            data?.url ||
+                            data?.data?.url ||
+                            data?.data?.dl ||
+                            data?.result?.video ||
+                            data?.download;
 
-                    if (video) break;
-                } catch (e) {
-                    console.log("API failed:", api);
+                        if (candidateVideoUrl && candidateVideoUrl.startsWith("http")) {
+                            videoUrl = candidateVideoUrl;
+                            title = data?.result?.title || data?.title || data?.data?.title || title;
+                            success = true;
+                            break; // Exit attempt loop on success
+                        }
+                    } catch (e) {
+                        if (attempt < 3) await sleep(2000); 
+                    }
                 }
             }
 
-            if (!video) throw new Error("No video URL found");
+            if (!videoUrl) throw new Error("No video URL found");
 
-            await sock.sendMessage(jid, {
-                video: { url: video },
-                caption: `${title}` // 🔥 Watermark removed, only Original Title
-            }, { quoted: msg });
+            // ─── Check File Size ───
+            let isDocument = false;
+            try {
+                const headerRes = await axios.head(videoUrl, { timeout: 10000 });
+                const contentLength = headerRes.headers['content-length'];
+                
+                if (contentLength) {
+                    const sizeInMB = parseInt(contentLength) / (1024 * 1024);
+                    // If size > 60MB, send as document
+                    if (sizeInMB > 60) {
+                        isDocument = true;
+                    }
+                }
+            } catch (headErr) {
+                // If HEAD fails, assume normal size and proceed, WhatsApp will reject if it's too big anyway
+            }
 
-            await sock.sendMessage(jid, {
-                react: { text: "✅", key: msg.key }
-            });
+            // ─── Send Video or Document ───
+            if (isDocument) {
+                await sock.sendMessage(jid, {
+                    document: { url: videoUrl },
+                    mimetype: 'video/mp4',
+                    fileName: `${title.replace(/[^a-zA-Z0-9 ]/g, '')}.mp4`,
+                    caption: `📄 *Sent as Document (Size > 60MB)*\n\n${title}`
+                }, { quoted: msg });
+            } else {
+                await sock.sendMessage(jid, {
+                    video: { url: videoUrl },
+                    caption: title 
+                }, { quoted: msg });
+            }
+
+            await sock.sendMessage(jid, { react: { text: "✅", key: msg.key } });
 
         } catch (err) {
-            console.error("YTV error:", err);
+            console.error("YTV Error:", err.message);
             
-            // 🔥 CUSTOM ERROR MESSAGE LIKE INSTA
             await sock.sendMessage(jid, {
-                text: `❌ *Something error please try again later*`
+                text: `❌ _Something went wrong, please try again later._`
             }, { quoted: msg });
             
-            await sock.sendMessage(jid, {
-                react: { text: "❌", key: msg.key }
-            });
+            await sock.sendMessage(jid, { react: { text: "❌", key: msg.key } });
         }
     }
 };

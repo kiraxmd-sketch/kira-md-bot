@@ -1,7 +1,4 @@
-const { downloadContentFromMessage, generateWAMessageFromContent, generateForwardMessageContent } = require("@whiskeysockets/baileys");
-const ffmpeg = require("fluent-ffmpeg");
-const fs = require("fs");
-const path = require("path");
+const { downloadContentFromMessage } = require("@whiskeysockets/baileys");
 
 function getTarget(s) {
     s = String(s || "").trim();
@@ -14,7 +11,7 @@ module.exports = {
     name: "forward",
     alias: ["fwd", "push"],
     category: "owner",
-    description: "Channel Voice PAKKA FIX",
+    description: "Powerful Forward to Group/User/Channel",
     usage: `${process.env.PREFIX || '.'}forward <JID>`,
 
     async execute(sock, msg, args, isOwner) {
@@ -22,92 +19,92 @@ module.exports = {
         if (!isOwner) return await sock.sendMessage(jid, { text: "❌ *Owner only!*" }, { quoted: msg });
 
         const target = getTarget(args.join(" "));
-        if (!target) return await sock.sendMessage(jid, { text: "⚠️ *Invalid JID!*" }, { quoted: msg });
+        if (!target) return await sock.sendMessage(jid, { text: "⚠️ *Invalid JID!*\nExample: .fwd 120363xxx@newsletter" }, { quoted: msg });
 
         const ctx = msg.message?.extendedTextMessage?.contextInfo;
         const quotedMsg = ctx?.quotedMessage;
-        if (!quotedMsg) return await sock.sendMessage(jid, { text: "⚠️ *Reply to a message to forward!*" }, { quoted: msg });
+        
+        if (!quotedMsg) {
+            return await sock.sendMessage(jid, { text: "⚠️ *Reply to a message to forward!*" }, { quoted: msg });
+        }
 
         await sock.sendMessage(jid, { react: { text: "🚀", key: msg.key } });
 
         try {
-            const mime = Object.keys(quotedMsg)[0];
+            const mimeType = Object.keys(quotedMsg)[0];
+            const content = quotedMsg[mimeType];
 
-            if (mime === 'audioMessage') {
-                const stream = await downloadContentFromMessage(quotedMsg[mime], 'audio');
-                const tempDir = path.join(__dirname, "../temp");
-                if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
-
-                const inputPath = path.join(tempDir, `in_${Date.now()}.tmp`);
-                const outputPath = path.join(tempDir, `out_${Date.now()}.ogg`);
-
+            // 1. Text Messages
+            if (mimeType === 'conversation' || mimeType === 'extendedTextMessage') {
+                const text = quotedMsg.conversation || quotedMsg.extendedTextMessage?.text;
+                await sock.sendMessage(target, { text: text });
+                
+            // 2. Audio & Voice Notes
+            } else if (mimeType === 'audioMessage') {
+                const stream = await downloadContentFromMessage(content, 'audio');
                 let buffer = Buffer.from([]);
                 for await (const chunk of stream) buffer = Buffer.concat([buffer, chunk]);
-                fs.writeFileSync(inputPath, buffer);
-
-                await new Promise((resolve, reject) => {
-                    ffmpeg(inputPath)
-                        .toFormat('ogg')
-                        .audioCodec('libopus')
-                        .audioBitrate('32k')
-                        .audioChannels(1)
-                        .audioFrequency(48000)
-                        .save(outputPath)
-                        .on('end', resolve)
-                        .on('error', reject);
+                
+                // PTT (Voice note) aayi thanne ayakkanam
+                await sock.sendMessage(target, { 
+                    audio: buffer, 
+                    mimetype: content.mimetype || 'audio/ogg; codecs=opus', 
+                    ptt: content.ptt || false 
                 });
 
-                const outBuffer = fs.readFileSync(outputPath);
+            // 3. Image Messages
+            } else if (mimeType === 'imageMessage') {
+                const stream = await downloadContentFromMessage(content, 'image');
+                let buffer = Buffer.from([]);
+                for await (const chunk of stream) buffer = Buffer.concat([buffer, chunk]);
                 
-                // Pakka trick: waveform + seconds + upload manually
-                const seconds = quotedMsg[mime].seconds || 10;
-                const waveform = quotedMsg[mime].waveform || new Uint8Array(64).fill(0).map(() => Math.floor(Math.random()*100));
+                await sock.sendMessage(target, { 
+                    image: buffer, 
+                    caption: content.caption || '' 
+                });
 
-                // Upload first, then relay - itha main fix
-                const uploaded = await sock.waUploadToServer(outBuffer, { mediaType: 'audio', fileEncSha256B64: '', mimetype: 'audio/ogg; codecs=opus' });
+            // 4. Video Messages
+            } else if (mimeType === 'videoMessage') {
+                const stream = await downloadContentFromMessage(content, 'video');
+                let buffer = Buffer.from([]);
+                for await (const chunk of stream) buffer = Buffer.concat([buffer, chunk]);
+                
+                await sock.sendMessage(target, { 
+                    video: buffer, 
+                    caption: content.caption || '',
+                    mimetype: content.mimetype || 'video/mp4'
+                });
 
-                const msgContent = {
-                    audioMessage: {
-                        url: uploaded.url,
-                        mimetype: 'audio/ogg; codecs=opus',
-                        fileSha256: uploaded.fileSha256,
-                        fileEncSha256: uploaded.fileEncSha256,
-                        mediaKey: uploaded.mediaKey,
-                        fileLength: outBuffer.length,
-                        seconds: seconds,
-                        ptt: true,
-                        waveform: waveform,
-                        directPath: uploaded.directPath
-                    }
-                };
+            // 5. Document Messages
+            } else if (mimeType === 'documentMessage') {
+                const stream = await downloadContentFromMessage(content, 'document');
+                let buffer = Buffer.from([]);
+                for await (const chunk of stream) buffer = Buffer.concat([buffer, chunk]);
+                
+                await sock.sendMessage(target, { 
+                    document: buffer,
+                    fileName: content.fileName || 'document',
+                    mimetype: content.mimetype,
+                    caption: content.caption || ''
+                });
 
-                const waMsg = generateWAMessageFromContent(target, msgContent, { userJid: sock.user.id });
-                await sock.relayMessage(target, waMsg.message, { messageId: waMsg.key.id });
-
-                if (fs.existsSync(inputPath)) fs.unlinkSync(inputPath);
-                if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
-
-                console.log("✅ RELAY SUCCESS TO:", target);
+            // 6. Sticker Messages
+            } else if (mimeType === 'stickerMessage') {
+                const stream = await downloadContentFromMessage(content, 'sticker');
+                let buffer = Buffer.from([]);
+                for await (const chunk of stream) buffer = Buffer.concat([buffer, chunk]);
+                
+                await sock.sendMessage(target, { sticker: buffer });
             } else {
-                // Text/image/video ok - native forward use cheyyam
-                const fakeOriginalMsg = {
-                    key: {
-                        remoteJid: jid,
-                        id: ctx.stanzaId,
-                        participant: ctx.participant || jid,
-                        fromMe: false 
-                    },
-                    message: quotedMsg
-                };
-                await sock.sendMessage(target, { forward: fakeOriginalMsg });
+                return await sock.sendMessage(jid, { text: "⚠️ *Unsupported message type!*" }, { quoted: msg });
             }
 
             await sock.sendMessage(jid, { react: { text: "✅", key: msg.key } });
 
         } catch (error) {
-            console.error("❌ FATAL ERROR:", error);
+            console.error("❌ FORWARD ERROR:", error);
             await sock.sendMessage(jid, { react: { text: "❌", key: msg.key } });
-            await sock.sendMessage(jid, { text: `Error: ${error.message}` }, { quoted: msg });
+            await sock.sendMessage(jid, { text: `❌ *Failed to forward!*\nError: ${error.message}` }, { quoted: msg });
         }
     }
 };

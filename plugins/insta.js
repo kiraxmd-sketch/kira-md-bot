@@ -1,22 +1,21 @@
-// plugins/downloader.js - KIRA X MD (Multi-Bot Supported Version)
+// plugins/insta.js - KIRA X MD (Multi-Bot Supported Version with 8x Retry)
 
 const axios = require("axios");
+
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 module.exports = [
     {
         name: "insta",
         alias: ["ig", "instagram", "reel"],
         category: "downloader",
-        description: "Instagram Downloader using Aswin Sparky API",
+        description: "Instagram Downloader",
         usage: ".insta <link>",
 
         async execute(sock, msg, args) {
             const jid = msg.key.remoteJid;
             let url = (args || []).join(" ").trim();
 
-            // ─────────────────────────────────────
-            // 1. GET URL FROM ARGS OR QUOTED MSG
-            // ─────────────────────────────────────
             const quoted = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
             if (!url && quoted) {
                 const text = 
@@ -38,38 +37,54 @@ module.exports = [
             try {
                 await sock.sendMessage(jid, { react: { text: "⏳", key: msg.key } });
 
-                console.log("\n========== INSTA DOWNLOADER ==========");
-                console.log("Target URL:", url);
+                const apis = [
+                    `https://jerrycoder.oggyapi.workers.dev/down/insta?url=${encodeURIComponent(url)}`,
+                    `https://jerrycoder.oggyapi.workers.dev/down/insta-v1?url=${encodeURIComponent(url)}`,
+                    `https://jerrycoder.oggyapi.workers.dev/down/insta-v2?url=${encodeURIComponent(url)}`,
+                    `https://api-aswin-sparky.koyeb.app/api/downloader/igdl?url=${encodeURIComponent(url)}`
+                ];
 
-                // ─────────────────────────────────────
-                // 2. FETCH FROM ASWIN SPARKY API
-                // ─────────────────────────────────────
-                const apiUrl = `https://api-aswin-sparky.koyeb.app/api/downloader/igdl?url=${encodeURIComponent(url)}`;
-                
-                const res = await axios.get(apiUrl, { timeout: 30000 });
-                const data = res.data;
+                let items = null;
+                let success = false;
 
-                if (!data || !data.status || !data.data || data.data.length === 0) {
-                    throw new Error("No data found");
+                for (const api of apis) {
+                    if (success) break;
+
+                    // 8x RETRY LOGIC FOR EACH API
+                    for (let attempt = 1; attempt <= 8; attempt++) {
+                        try {
+                            const res = await axios.get(api, { timeout: 25000, headers: { "User-Agent": "Mozilla/5.0" } });
+                            const data = res.data;
+
+                            if (data?.data && Array.isArray(data.data) && data.data.length > 0) {
+                                items = data.data;
+                            } else if (data?.result && Array.isArray(data.result) && data.result.length > 0) {
+                                items = data.result;
+                            } else if (data?.urls && Array.isArray(data.urls) && data.urls.length > 0) {
+                                items = data.urls;
+                            }
+
+                            if (items) {
+                                success = true;
+                                break;
+                            }
+                        } catch (e) {
+                            if (attempt < 8) await sleep(2000); // 2 seconds gap
+                        }
+                    }
                 }
 
-                const items = data.data;
-                console.log(`✅ API Success! Found ${items.length} media item(s).`);
+                if (!items) throw new Error("No data found after 8 retries");
 
-                // ─────────────────────────────────────
-                // 3. BUFFER FIX & SEND TO WHATSAPP
-                // ─────────────────────────────────────
                 for (const item of items) {
-                    const mediaUrl = item.url;
-                    if (!mediaUrl) continue;
+                    const mediaUrl = item.url || item.url_download || item;
+                    if (!mediaUrl || typeof mediaUrl !== 'string') continue;
 
-                    const type = item.type === "video" ? "video" : "image";
-                    console.log(`📡 Downloading ${type} as buffer to support multiple bots...`);
+                    const type = mediaUrl.includes('.mp4') || (item.type === "video") ? "video" : "image";
 
-                    // 🔥 THE FIX: Download as buffer first
                     const mediaResponse = await axios.get(mediaUrl, { 
                         responseType: 'arraybuffer',
-                        timeout: 60000 // 1 minute timeout for large videos
+                        timeout: 60000 
                     });
                     const mediaBuffer = Buffer.from(mediaResponse.data);
 
@@ -90,11 +105,7 @@ module.exports = [
 
             } catch (err) {
                 console.error("❌ INSTA ERROR:", err.message);
-                
-                await sock.sendMessage(jid, { 
-                    text: "❌ *Something error please try again later*" 
-                }, { quoted: msg });
-                
+                await sock.sendMessage(jid, { text: "❌ _Something went wrong, please try again later._" }, { quoted: msg });
                 await sock.sendMessage(jid, { react: { text: "❌", key: msg.key } });
             }
         }
@@ -116,6 +127,8 @@ module.exports = [
                 const text = 
                     quoted.conversation || 
                     quoted.extendedTextMessage?.text || 
+                    quoted.imageMessage?.caption || 
+                    quoted.videoMessage?.caption || 
                     "";
                 const match = text.match(/https?:\/\/[^\s]+/i);
                 if (match) url = match[0];
@@ -130,22 +143,44 @@ module.exports = [
             try {
                 await sock.sendMessage(jid, { react: { text: "⏳", key: msg.key } });
 
-                console.log("\n========== SNAPCHAT DOWNLOADER ==========");
-                console.log("Target URL:", url);
+                const apis = [
+                    `https://jerrycoder.oggyapi.workers.dev/down/snap?url=${encodeURIComponent(url)}`,
+                    `https://api-aswin-sparky.koyeb.app/api/downloader/snapchat?url=${encodeURIComponent(url)}` 
+                ];
 
-                const apiUrl = `https://jerrycoder.oggyapi.workers.dev/down/snap?url=${encodeURIComponent(url)}`;
-                
-                const res = await axios.get(apiUrl, { timeout: 30000 });
-                const data = res.data;
+                let mediaUrl = null;
+                let captionText = "";
+                let success = false;
 
-                if (data.status !== "success" || !data.medias || data.medias.length === 0) {
-                    throw new Error("No media found");
+                for (const api of apis) {
+                    if (success) break;
+
+                    // 8x RETRY LOGIC FOR EACH API
+                    for (let attempt = 1; attempt <= 8; attempt++) {
+                        try {
+                            const res = await axios.get(api, { timeout: 25000, headers: { "User-Agent": "Mozilla/5.0" } });
+                            const data = res.data;
+
+                            if (data?.medias && data.medias.length > 0) {
+                                mediaUrl = data.medias[0].url;
+                                captionText = data.title || "";
+                            } else if (data?.data?.url) {
+                                mediaUrl = data.data.url;
+                            } else if (data?.url) {
+                                mediaUrl = data.url;
+                            }
+
+                            if (mediaUrl) {
+                                success = true;
+                                break;
+                            }
+                        } catch (e) {
+                            if (attempt < 8) await sleep(2000); // 2 seconds gap
+                        }
+                    }
                 }
 
-                const mediaUrl = data.medias[0].url;
-                const captionText = data.title || "";
-
-                console.log(`📡 Downloading Snapchat video as buffer...`);
+                if (!mediaUrl) throw new Error("No media found after 8 retries");
 
                 const mediaResponse = await axios.get(mediaUrl, { 
                     responseType: 'arraybuffer',
@@ -162,11 +197,7 @@ module.exports = [
 
             } catch (err) {
                 console.error("❌ SNAP ERROR:", err.message);
-                
-                await sock.sendMessage(jid, { 
-                    text: "❌ *Something error please try again later*" 
-                }, { quoted: msg });
-                
+                await sock.sendMessage(jid, { text: "❌ _Something went wrong, please try again later._" }, { quoted: msg });
                 await sock.sendMessage(jid, { react: { text: "❌", key: msg.key } });
             }
         }

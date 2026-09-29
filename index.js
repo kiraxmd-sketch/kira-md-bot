@@ -126,7 +126,7 @@ function getBotNumber(sock) { try { return (sock.user?.id?.split(":")[0]?.replac
 function normalizeJid(jid) { if (!jid) return ""; const number = jid.split(":")[0].split("@")[0].replace(/[^0-9]/g, ""); return number ? `${number}@s.whatsapp.net` : jid; }
 function getSender(msg, sock) { if (msg.key?.fromMe) { return normalizeJid(sock.user?.id); } const raw = msg.key?.participant || msg.participant || msg.key?.remoteJid; return normalizeJid(raw); }
 
-// 🔥 Empty Message Fix: Added support for ephemeral (disappearing) & ViewOnce messages
+// 🔥 Empty Message Fix
 function getMessageText(msg) { 
     let message = msg.message || {};
     if (message.ephemeralMessage) message = message.ephemeralMessage.message;
@@ -386,11 +386,13 @@ async function startKira() {
                     }
 
                     const cleanText = text.replace(/[\u200B-\u200D\uFEFF\u200E\u200F\s]/g, '');
-                    // 🔥 Fixed: Message objects might be nested if it's ephemeral/viewonce
                     const msgContent = msg.message.ephemeralMessage?.message || msg.message.viewOnceMessage?.message || msg.message.viewOnceMessageV2?.message || msg.message.documentWithCaptionMessage?.message || msg.message;
                     const hasMedia = msgContent.imageMessage || msgContent.videoMessage || msgContent.stickerMessage || msgContent.documentMessage || msgContent.audioMessage || msgContent.contactMessage;
                     
-                    if (!cleanText && !hasMedia) continue;
+                    // Ignore strictly empty messages safely
+                    if (!cleanText && !hasMedia) {
+                        continue;
+                    }
 
                     global.msgRateLimit = global.msgRateLimit || {};
                     const rateLimitKey = `${jid}:${sender}`;
@@ -435,12 +437,23 @@ async function startKira() {
                     
                     if (autoDlEnabled && text && !text.startsWith(prefix)) { try { if (/instagram\.com/i.test(text)) { const insta = findCommand("insta"); if (insta) { await insta.execute(sock, msg, [text], isOwnerOrSudo); } continue; } if (/facebook\.com|fb\.watch|fb\.gg/i.test(text)) { const fb = findCommand("fb"); if (fb) { await fb.execute(sock, msg, [text], isOwnerOrSudo); } continue; } if (/youtube\.com|youtu\.be/i.test(text)) { const ytv = findCommand("ytv"); if (ytv) { await ytv.execute(sock, msg, [text], isOwnerOrSudo); } continue; } } catch (err) {} }
 
+                    // 🔥 FIX FOR NUMBER REPLY (Prevents empty numbers from causing errors)
+                    const quotedMsg = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
+                    
+                    let isNumberReplyWithQuote = false;
+                    let parsedNumber = null;
+
+                    if (quotedMsg && /^[.#!]?\d+$/.test(text.trim())) {
+                        isNumberReplyWithQuote = true;
+                        parsedNumber = text.trim().replace(/^[.#!]?/, ''); // Keep only the number
+                    }
+
                     let args;
                     if (text.startsWith(prefix)) { 
                         const commandText = text.slice(prefix.length).trim(); 
                         if (!commandText) continue; 
                         args = commandText.split(/\s+/); 
-                    } else if (config.withoutHandler) { 
+                    } else if (config.withoutHandler || isNumberReplyWithQuote) { 
                         if (!text) continue; 
                         args = text.split(/\s+/); 
                     } else { 
@@ -450,7 +463,7 @@ async function startKira() {
                     const commandName = String(args.shift() || "").toLowerCase(); 
                     if (!commandName) continue;
 
-                    // 🎯 REAL USER REGISTRATION (MOVED HERE: ONLY COUNTS COMMAND USERS)
+                    // 🎯 REAL USER REGISTRATION 
                     if (!msg.key.fromMe && sender) {
                         recordBotUser(sender);
                     }
@@ -482,11 +495,39 @@ async function startKira() {
                         continue;
                     }
 
-                    const command = findCommand(commandName); if (!command) continue;
+                    const command = findCommand(commandName); 
+
+                    // 🔥 Number Reply Fix (Ensures the number matches an actual command alias perfectly without running unrelated plugins)
+                    if (!command && isNumberReplyWithQuote && parsedNumber) {
+                        const numberCommandMatch = commands.find((cmd) => Array.isArray(cmd.alias) && cmd.alias.some((alias) => String(alias).toLowerCase() === parsedNumber));
+                        
+                        if (numberCommandMatch) {
+                            if (config.botMode === "private" && !isOwnerOrSudo) continue;
+                            if (numberCommandMatch.category === "owner" && !isOwnerOrSudo) continue;
+                            
+                            try { 
+                                // Re-inject the parsed number as an argument to let the plugin know what was requested
+                                await numberCommandMatch.execute(sock, msg, [parsedNumber], isOwnerOrSudo); 
+                            } 
+                            catch (cmdErr) { console.error(`❌ Number Command Error:`, cmdErr); }
+                        }
+                        continue; // Skip the rest, we already handled the number reply
+                    }
+
+                    // If neither command nor valid number reply exists, ignore gracefully
+                    if (!command) continue;
+
                     if (config.botMode === "private" && !isOwnerOrSudo) continue;
-                    if (command.category === "owner" && !isOwnerOrSudo) { await sock.sendMessage(jid, { text: "❌ *Owner only command!*" }, { quoted: msg }); continue; }
+                    if (command.category === "owner" && !isOwnerOrSudo) { 
+                        await sock.sendMessage(jid, { text: "❌ *Owner only command!*" }, { quoted: msg }); 
+                        continue; 
+                    }
                     
-                    try { await command.execute(sock, msg, args, isOwnerOrSudo); } catch (cmdErr) { console.error(`❌ Command "${command.name}" error:`, cmdErr); try { await sock.sendMessage(jid, { text: "❌ *Something went wrong while executing this command.*" }, { quoted: msg }); } catch {} }
+                    try { 
+                        await command.execute(sock, msg, args, isOwnerOrSudo); 
+                    } catch (cmdErr) { 
+                        console.error(`❌ Command "${command.name}" error:`, cmdErr); 
+                    }
                 }
             } catch (err) { console.error("❌ Message handler error:", err); }
         });

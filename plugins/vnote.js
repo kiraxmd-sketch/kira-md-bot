@@ -3,6 +3,12 @@ const ffmpeg = require("fluent-ffmpeg");
 const fs = require("fs");
 const path = require("path");
 
+// FFmpeg Path Setup (Same as your play.js)
+const ffmpegPath = path.join(__dirname, '../ffmpeg.exe');
+if (fs.existsSync(ffmpegPath)) {
+    ffmpeg.setFfmpegPath(ffmpegPath);
+}
+
 module.exports = {
     name: "vnote",
     alias: ["vn", "ptt", "voicenote"],
@@ -31,15 +37,18 @@ module.exports = {
         // KIRA X MD - Reaction Only Loading
         await sock.sendMessage(jid, { react: { text: "🎙️", key: msg.key } });
 
+        let inputPath, outputPath;
+
         try {
-            const msgType = mime.replace("Message", "");
+            // Fix for Baileys msgType
+            const msgType = mime === 'audioMessage' ? 'audio' : mime === 'videoMessage' ? 'video' : 'document';
             const stream = await downloadContentFromMessage(quoted[mime], msgType);
             
             const tempDir = path.join(__dirname, "../temp");
             if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
 
-            const inputPath = path.join(tempDir, `input_${Date.now()}`);
-            const outputPath = path.join(tempDir, `vnote_${Date.now()}.ogg`);
+            inputPath = path.join(tempDir, `input_${Date.now()}`);
+            outputPath = path.join(tempDir, `vnote_${Date.now()}.ogg`);
 
             let buffer = Buffer.from([]);
             for await (const chunk of stream) {
@@ -47,15 +56,15 @@ module.exports = {
             }
             fs.writeFileSync(inputPath, buffer);
 
+            // 🔥 FFmpeg settings perfectly tuned for WhatsApp PTT
             await new Promise((resolve, reject) => {
                 ffmpeg(inputPath)
-                    .toFormat('ogg')
+                    .noVideo() // CRITICAL: Removes video streams to prevent corruption error
                     .audioCodec('libopus')
-                    .addOutputOptions([
-                        '-avoid_negative_ts make_zero',
-                        '-ac 1', 
-                        '-b:a 64k'
-                    ])
+                    .audioBitrate('128k')
+                    .audioChannels(1) // Mono audio (standard for WhatsApp)
+                    .audioFrequency(48000) // 48kHz (required for standard PTT)
+                    .toFormat('ogg')
                     .save(outputPath)
                     .on('end', resolve)
                     .on('error', reject);
@@ -63,6 +72,7 @@ module.exports = {
 
             const audioBuffer = fs.readFileSync(outputPath);
 
+            // Create a realistic-looking waveform
             const dummyWaveform = new Uint8Array(64);
             for (let i = 0; i < 64; i++) {
                 dummyWaveform[i] = Math.floor(Math.random() * 100);
@@ -78,15 +88,18 @@ module.exports = {
             // Success Reaction
             await sock.sendMessage(jid, { react: { text: "✅", key: msg.key } });
 
-            if (fs.existsSync(inputPath)) fs.unlinkSync(inputPath);
-            if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
-
         } catch (error) {
             console.error("VNOTE Error:", error);
             await sock.sendMessage(jid, { react: { text: "❌", key: msg.key } });
             await sock.sendMessage(jid, { 
-                text: "❌ *Conversion failed! Check if FFMPEG is installed on your server.*" 
+                text: "❌ *Conversion failed! Something went wrong during processing.*" 
             }, { quoted: msg });
+        } finally {
+            // 🔥 Safe Cleanup to prevent server storage from filling up
+            try {
+                if (inputPath && fs.existsSync(inputPath)) fs.unlinkSync(inputPath);
+                if (outputPath && fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
+            } catch (cleanupError) {}
         }
     }
 };

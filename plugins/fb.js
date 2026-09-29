@@ -1,4 +1,4 @@
-// plugins/fb.js – KIRA X MD (Fixed Facebook Downloader with HD Priority)
+// plugins/fb.js – KIRA X MD (Fixed Facebook Downloader with HD Priority & 8x Retry)
 
 const axios = require("axios");
 
@@ -11,6 +11,9 @@ function decodeHTMLEntities(text) {
         .replace(/&lt;/g, '<')
         .replace(/&gt;/g, '>');
 }
+
+// Sleep function for retry delay
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 module.exports = {
     name: "fb",
@@ -45,32 +48,38 @@ module.exports = {
         }
 
         try {
+            // Reaction ONLY loading
             await sock.sendMessage(jid, { react: { text: "⏳", key: msg.key } });
 
-            // 1. JERRYCODER API FIRST, THEN FALLBACKS
+            // 1. APIS
             const apis = [
                 `https://jerrycoder.oggyapi.workers.dev/down/fb?url=${encodeURIComponent(url)}`,
                 `https://kiraxmd-api.vercel.app/api/fb?url=${encodeURIComponent(url)}`,
                 `https://api-aswin-sparky.koyeb.app/api/downloader/fb?url=${encodeURIComponent(url)}`,
-                `https://api.siputzx.my.id/api/d/facebook?url=${encodeURIComponent(url)}`,
-                `https://api.ryzendesu.vip/api/downloader/fbdl?url=${encodeURIComponent(url)}`
             ];
 
             let data = null;
+            let success = false;
 
+            // 8x RETRY LOGIC FOR EACH API
             for (const api of apis) {
-                try {
-                    const res = await axios.get(api, { timeout: 25000 });
-                    if (res.data) {
-                        data = res.data;
-                        break;
+                if (success) break;
+
+                for (let attempt = 1; attempt <= 8; attempt++) {
+                    try {
+                        const res = await axios.get(api, { timeout: 25000, headers: { "User-Agent": "Mozilla/5.0" } });
+                        if (res.data) {
+                            data = res.data;
+                            success = true;
+                            break;
+                        }
+                    } catch (e) {
+                        if (attempt < 8) await sleep(2000); // 2 second delay before next try
                     }
-                } catch (e) {
-                    continue; // Adutha API nokkum
                 }
             }
 
-            if (!data) throw new Error("All FB APIs failed");
+            if (!data) throw new Error("All FB APIs failed after 8 retries");
 
             // 2. EXTRACT VIDEO URL (PRIORITIZING HD)
             let videoUrl = null;
@@ -119,13 +128,14 @@ module.exports = {
                 caption: title 
             }, { quoted: msg });
 
+            // Success Reaction
             await sock.sendMessage(jid, { react: { text: "✅", key: msg.key } });
 
         } catch (err) {
-            console.log("FB ERROR:", err.message);
+            console.error("FB ERROR:", err.message);
 
             await sock.sendMessage(jid, {
-                text: "❌ Something error please try again later ⚠️"
+                text: "❌ _Something went wrong, please try again later._"
             }, { quoted: msg });
 
             await sock.sendMessage(jid, { react: { text: "❌", key: msg.key } });
