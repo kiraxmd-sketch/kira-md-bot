@@ -1,9 +1,7 @@
-// plugins/play.js – KIRA X MD (Ultra Fast Audio Downloader - No FFmpeg Delay)
+// plugins/play.js – KIRA X MD (Ultra Fast Promise.any Audio Downloader)
 const ytSearch = require('yt-search');
 const axios = require('axios');
 const { getSettings } = require('../lib/database');
-
-const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 module.exports = {
     name: 'play',
@@ -72,8 +70,6 @@ module.exports = {
                 await sock.sendMessage(jid, { text: `*Downloading* : ${title} | ${artist}`, edit: statusMsg.key });
             }
             
-            let audioBuffer = null;
-
             // Priority API List
             const apis = [
                 `https://kiraxmd-api.vercel.app/api/play?query=${encodeURIComponent(url)}`,
@@ -83,29 +79,23 @@ module.exports = {
                 `https://jerrycoder.oggyapi.workers.dev/down/ytmp3?url=${encodeURIComponent(url)}`
             ];
 
-            // Direct Buffer Download (Super Fast)
-            for (const api of apis) {
-                if (audioBuffer) break;
-                
-                for (let i = 0; i < 3; i++) { // Reduced retry count to speed up failover
-                    try {
-                        const res = await axios.get(api, { timeout: 15000, headers: { "User-Agent": "Mozilla/5.0" } });
-                        const candidate = res.data?.result?.mp3 || res.data?.result?.url || res.data?.data?.dl || res.data?.data?.download || res.data?.download || res.data?.url || (typeof res.data?.result === "string" ? res.data.result : null) || (typeof res.data === "string" ? res.data : null);
+            // 🚀 MEGA SPEED: Promise.any Implementation
+            const fetchAudioApi = async (apiUrl) => {
+                const res = await axios.get(apiUrl, { timeout: 10000, headers: { "User-Agent": "Mozilla/5.0" } });
+                const data = res.data;
+                const candidate = data?.result?.mp3 || data?.result?.url || data?.data?.dl || data?.data?.download || data?.download || data?.url || (typeof data?.result === "string" ? data.result : null) || (typeof data === "string" ? data : null);
 
-                        if (candidate && typeof candidate === "string" && candidate.startsWith("http")) {
-                            const audioResponse = await axios.get(candidate, { responseType: "arraybuffer", timeout: 20000 });
-                            if (audioResponse.status === 200 && audioResponse.data) {
-                                audioBuffer = Buffer.from(audioResponse.data);
-                                break; 
-                            }
-                        }
-                    } catch (err) {}
-
-                    if (!audioBuffer && i < 2) {
-                        await sleep(1000); // 1s gap instead of 3s to be faster
+                if (candidate && typeof candidate === "string" && candidate.startsWith("http")) {
+                    // Try to fetch buffer immediately to confirm it's valid
+                    const audioResponse = await axios.get(candidate, { responseType: "arraybuffer", timeout: 15000 });
+                    if (audioResponse.status === 200 && audioResponse.data) {
+                         return Buffer.from(audioResponse.data);
                     }
                 }
-            }
+                throw new Error("Invalid response");
+            };
+            
+            const audioBuffer = await Promise.any(apis.map(api => fetchAudioApi(api)));
 
             if (!audioBuffer) {
                 throw new Error("All servers are temporarily blocked by YouTube. Please try again later.");
