@@ -1,4 +1,4 @@
-// plugins/add.js – KIRA X MD (Smart Add User)
+// plugins/add.js – KIRA X MD (Smart Add User - Super Strong Fix)
 module.exports = {
     name: 'add',
     alias: ['addmember'],
@@ -12,38 +12,35 @@ module.exports = {
             return await sock.sendMessage(jid, { text: "❌ *This command can only be used in groups!*" }, { quoted: msg });
         }
 
-        // ─── Admin Check ───
         const sender = msg.key.participant || msg.key.remoteJid;
+        const botNumber = sock.user.id.split(':')[0] + '@s.whatsapp.net';
+        
+        // ─── Metadata & Admin Checks ───
         const groupMetadata = await sock.groupMetadata(jid);
         const isAdmin = groupMetadata.participants.some(p => p.id === sender && (p.admin === 'admin' || p.admin === 'superadmin'));
+        const isBotAdmin = groupMetadata.participants.some(p => p.id === botNumber && (p.admin === 'admin' || p.admin === 'superadmin'));
 
         if (!isAdmin && !isOwner) {
             return await sock.sendMessage(jid, { text: "❌ *Group Admins only!*" }, { quoted: msg });
         }
 
-        // ─── Get Target ───
+        if (!isBotAdmin) {
+            return await sock.sendMessage(jid, { text: "❌ *I need to be an Admin to add users!*" }, { quoted: msg });
+        }
+
+        // ─── Get Target Number ───
         let target = null;
-
-        // 1. Check if user mentioned someone
+        
         const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid;
+        const quotedSender = msg.message?.extendedTextMessage?.contextInfo?.participant;
+
         if (mentioned && mentioned.length > 0) {
-            target = mentioned[0];
-        }
-
-        // 2. Check if replying to a message
-        if (!target) {
-            const quoted = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
-            if (quoted) {
-                const quotedSender = msg.message?.extendedTextMessage?.contextInfo?.participant;
-                if (quotedSender) target = quotedSender;
-                else if (quoted.key?.participant) target = quoted.key.participant;
-                else if (quoted.key?.remoteJid) target = quoted.key.remoteJid;
-            }
-        }
-
-        // 3. Check if phone number provided in args
-        if (!target && args && args.length > 0) {
-            const phone = args[0].replace(/[^0-9]/g, '');
+            target = mentioned[0]; // From mention
+        } else if (quotedSender) {
+            target = quotedSender; // From reply
+        } else if (args && args.length > 0) {
+            // 🔥 Fix: Combine all args so +91 98765 43210 or spaces work perfectly
+            const phone = args.join('').replace(/[^0-9]/g, '');
             if (phone.length >= 10) {
                 target = phone + '@s.whatsapp.net';
             }
@@ -55,48 +52,70 @@ module.exports = {
             }, { quoted: msg });
         }
 
-        // ─── Prevent adding self ───
+        // ─── Prevent Self Adding / Duplicates ───
         if (target === sender) {
             return await sock.sendMessage(jid, { text: "❌ *You cannot add yourself!*" }, { quoted: msg });
         }
+        if (target === botNumber) {
+            return await sock.sendMessage(jid, { text: "❌ *I'm already here!*" }, { quoted: msg });
+        }
+
+        const isAlreadyInGroup = groupMetadata.participants.some(p => p.id === target);
+        if (isAlreadyInGroup) {
+            return await sock.sendMessage(jid, { text: `⚠️ *@${target.split('@')[0]} is already in this group!*`, mentions: [target] }, { quoted: msg });
+        }
 
         // ─── Try to add ───
+        await sock.sendMessage(jid, { react: { text: "⏳", key: msg.key } });
+
         try {
             const res = await sock.groupParticipantsUpdate(jid, [target], "add");
             
-            // 🔥 Baileys Error Check
-            let isRestricted = false;
-            if (Array.isArray(res) && res[0]) {
-                if (res[0].status == 403 || res[0].status == 463 || res[0].status == 409) {
-                    isRestricted = true;
+            // 🔥 Precise Error Checking for Baileys
+            if (Array.isArray(res) && res.length > 0) {
+                const status = res[0].status;
+
+                if (status == 200) {
+                    await sock.sendMessage(jid, {
+                        text: `✅ *User added successfully!*\n📌 Welcome @${target.split('@')[0]}`,
+                        mentions: [target]
+                    }, { quoted: msg });
+                    await sock.sendMessage(jid, { react: { text: "✅", key: msg.key } });
+                } 
+                else if (status == 403 || status == 463) {
+                    await sock.sendMessage(jid, {
+                        text: `⚠️ *Privacy Restricted!*\n\nI couldn't add @${target.split('@')[0]} directly because their privacy settings restrict who can add them to groups.`,
+                        mentions: [target]
+                    }, { quoted: msg });
+                    await sock.sendMessage(jid, { react: { text: "⚠️", key: msg.key } });
+                } 
+                else if (status == 409) {
+                    await sock.sendMessage(jid, { text: `⚠️ *@${target.split('@')[0]} is already in the group!*`, mentions: [target] }, { quoted: msg });
+                } 
+                else if (status == 401) {
+                    await sock.sendMessage(jid, { text: `❌ *Failed to add. I don't have enough permissions!*` }, { quoted: msg });
+                } 
+                else if (status == 408) {
+                    await sock.sendMessage(jid, { text: `❌ *Network timeout while adding. Try again!*` }, { quoted: msg });
+                } 
+                else {
+                    await sock.sendMessage(jid, { text: `❌ *Failed to add user! (Status: ${status})*` }, { quoted: msg });
                 }
+            } else {
+                // Success fallback if response isn't an array but didn't throw
+                await sock.sendMessage(jid, {
+                    text: `✅ *Added successfully!*\n📌 Welcome @${target.split('@')[0]}`,
+                    mentions: [target]
+                }, { quoted: msg });
+                await sock.sendMessage(jid, { react: { text: "✅", key: msg.key } });
             }
-
-            if (isRestricted) {
-                throw { data: 463, message: "account_reachout_restricted" }; 
-            }
-
-            await sock.sendMessage(jid, {
-                text: `✅ *User added successfully!*\n📌 @${target.split('@')[0]}`,
-                mentions: [target]
-            }, { quoted: msg });
 
         } catch (err) {
             console.error("Add error:", err);
-            const errString = String(err.message || err);
-            const errData = err.data || err.output?.statusCode;
-            
-            // 🔥 പ്രൈവസി കാരണം ആഡ് ചെയ്യാൻ പറ്റിയില്ലെങ്കിൽ ഗ്രൂപ്പിൽ മാത്രം അറിയിക്കുന്നു
-            if (errData === 463 || errData === 403 || errData === 409 || errString.includes("restricted") || errString.includes("463")) {
-                await sock.sendMessage(jid, {
-                    text: `⚠️ *Privacy Restricted!*\n\nI couldn't add @${target.split('@')[0]} directly because their privacy settings restrict who can add them to groups.`,
-                    mentions: [target]
-                }, { quoted: msg });
-            } else {
-                await sock.sendMessage(jid, {
-                    text: `❌ *Failed to add user*\n➤ Make sure I am an admin and the number is valid.`
-                }, { quoted: msg });
-            }
+            await sock.sendMessage(jid, { react: { text: "❌", key: msg.key } });
+            await sock.sendMessage(jid, {
+                text: `❌ *Failed to add user*\n➤ Make sure the number is valid and registered on WhatsApp.`
+            }, { quoted: msg });
         }
     }
 };

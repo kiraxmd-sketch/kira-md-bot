@@ -6,7 +6,7 @@ module.exports = [
         name: "vv",
         alias: ["viewonce", "retrieve"],
         category: "tools",
-        description: "Retrieve View Once images and videos",
+        description: "Retrieve View Once images, videos and voice notes",
         usage: ".vv (reply to a view once message)",
 
         async execute(sock, msg) {
@@ -34,7 +34,7 @@ module.exports = [
                                quoted.viewOnceMessageV2Extension?.message || 
                                quoted;
 
-                const media = viewOnce.imageMessage || viewOnce.videoMessage;
+                const media = viewOnce.imageMessage || viewOnce.videoMessage || viewOnce.audioMessage;
 
                 if (!media || !media.viewOnce) {
                     // ചിലപ്പോൾ ഡയറക്റ്റ് quotedMessage-ൽ തന്നെ വ്യൂ വൺസ് വരാം, അതിനായുള്ള എക്സ്ട്രാ ചെക്കിംഗ്
@@ -43,7 +43,7 @@ module.exports = [
                     if (!isRealViewOnce) {
                         return sock.sendMessage(
                             jid,
-                            { text: "❌ *Replied message is not a View Once photo/video!*" },
+                            { text: "❌ *Replied message is not a View Once photo/video/audio!*" },
                             { quoted: msg }
                         );
                     }
@@ -52,7 +52,11 @@ module.exports = [
                 // ഡൗൺലോഡ് തുടങ്ങുന്നു എന്ന് കാണിക്കാൻ റിയാക്ഷൻ
                 await sock.sendMessage(jid, { react: { text: "📥", key: msg.key } });
 
-                const type = media.mimetype.startsWith("image") ? "image" : "video";
+                let type;
+                if (media.mimetype.startsWith("image")) type = "image";
+                else if (media.mimetype.startsWith("video")) type = "video";
+                else if (media.mimetype.startsWith("audio")) type = "audio";
+
                 const stream = await downloadContentFromMessage(media, type);
 
                 let buffer = Buffer.from([]);
@@ -69,10 +73,17 @@ module.exports = [
                         { image: buffer, caption: originalCaption },
                         { quoted: msg }
                     );
-                } else {
+                } else if (type === "video") {
                     await sock.sendMessage(
                         jid,
                         { video: buffer, caption: originalCaption },
+                        { quoted: msg }
+                    );
+                } else if (type === "audio") {
+                    // വോയ്സ് നോട്ട് ആയി തന്നെ സെൻഡ് ചെയ്യുന്നു
+                    await sock.sendMessage(
+                        jid,
+                        { audio: buffer, mimetype: media.mimetype, ptt: true },
                         { quoted: msg }
                     );
                 }

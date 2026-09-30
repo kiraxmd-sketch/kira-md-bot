@@ -1,4 +1,4 @@
-// plugins/insta.js - KIRA X MD (Multi-Bot Supported Version with 8x Retry)
+// plugins/insta.js - KIRA X MD (Multi-Bot Supported Version with Smart Retry)
 
 const axios = require("axios");
 
@@ -37,45 +37,72 @@ module.exports = [
             try {
                 await sock.sendMessage(jid, { react: { text: "⏳", key: msg.key } });
 
-                const apis = [
-                    `https://jerrycoder.oggyapi.workers.dev/down/insta?url=${encodeURIComponent(url)}`,
-                    `https://jerrycoder.oggyapi.workers.dev/down/insta-v1?url=${encodeURIComponent(url)}`,
-                    `https://jerrycoder.oggyapi.workers.dev/down/insta-v2?url=${encodeURIComponent(url)}`,
-                    `https://api-aswin-sparky.koyeb.app/api/downloader/igdl?url=${encodeURIComponent(url)}`
-                ];
-
                 let items = null;
                 let success = false;
 
-                for (const api of apis) {
-                    if (success) break;
+                // ─── 1. KIRA PRIMARY API (5 Retries, 15s Timeout) ───
+                const kiraApi = `https://kiraxmd-api.vercel.app/api/insta?url=${encodeURIComponent(url)}`;
+                for (let attempt = 1; attempt <= 5; attempt++) {
+                    try {
+                        const res = await axios.get(kiraApi, { timeout: 15000, headers: { "User-Agent": "Mozilla/5.0" } });
+                        const data = res.data;
 
-                    // 8x RETRY LOGIC FOR EACH API
-                    for (let attempt = 1; attempt <= 8; attempt++) {
-                        try {
-                            const res = await axios.get(api, { timeout: 25000, headers: { "User-Agent": "Mozilla/5.0" } });
-                            const data = res.data;
+                        if (data?.data && Array.isArray(data.data) && data.data.length > 0) {
+                            items = data.data;
+                        } else if (data?.result && Array.isArray(data.result) && data.result.length > 0) {
+                            items = data.result;
+                        } else if (data?.urls && Array.isArray(data.urls) && data.urls.length > 0) {
+                            items = data.urls;
+                        }
 
-                            if (data?.data && Array.isArray(data.data) && data.data.length > 0) {
-                                items = data.data;
-                            } else if (data?.result && Array.isArray(data.result) && data.result.length > 0) {
-                                items = data.result;
-                            } else if (data?.urls && Array.isArray(data.urls) && data.urls.length > 0) {
-                                items = data.urls;
+                        if (items) {
+                            success = true;
+                            break;
+                        }
+                    } catch (e) {
+                        if (attempt < 5) await sleep(2000); 
+                    }
+                }
+
+                // ─── 2. FALLBACK APIS (8 Retries, 25s Timeout) ───
+                if (!success) {
+                    const fallbackApis = [
+                        `https://jerrycoder.oggyapi.workers.dev/down/insta?url=${encodeURIComponent(url)}`,
+                        `https://jerrycoder.oggyapi.workers.dev/down/insta-v1?url=${encodeURIComponent(url)}`,
+                        `https://jerrycoder.oggyapi.workers.dev/down/insta-v2?url=${encodeURIComponent(url)}`,
+                        `https://api-aswin-sparky.koyeb.app/api/downloader/igdl?url=${encodeURIComponent(url)}`
+                    ];
+
+                    for (const api of fallbackApis) {
+                        if (success) break;
+
+                        for (let attempt = 1; attempt <= 8; attempt++) {
+                            try {
+                                const res = await axios.get(api, { timeout: 25000, headers: { "User-Agent": "Mozilla/5.0" } });
+                                const data = res.data;
+
+                                if (data?.data && Array.isArray(data.data) && data.data.length > 0) {
+                                    items = data.data;
+                                } else if (data?.result && Array.isArray(data.result) && data.result.length > 0) {
+                                    items = data.result;
+                                } else if (data?.urls && Array.isArray(data.urls) && data.urls.length > 0) {
+                                    items = data.urls;
+                                }
+
+                                if (items) {
+                                    success = true;
+                                    break;
+                                }
+                            } catch (e) {
+                                if (attempt < 8) await sleep(2000);
                             }
-
-                            if (items) {
-                                success = true;
-                                break;
-                            }
-                        } catch (e) {
-                            if (attempt < 8) await sleep(2000); // 2 seconds gap
                         }
                     }
                 }
 
-                if (!items) throw new Error("No data found after 8 retries");
+                if (!items) throw new Error("No data found after retries");
 
+                // ─── SENDING MEDIA ───
                 for (const item of items) {
                     const mediaUrl = item.url || item.url_download || item;
                     if (!mediaUrl || typeof mediaUrl !== 'string') continue;
@@ -155,7 +182,6 @@ module.exports = [
                 for (const api of apis) {
                     if (success) break;
 
-                    // 8x RETRY LOGIC FOR EACH API
                     for (let attempt = 1; attempt <= 8; attempt++) {
                         try {
                             const res = await axios.get(api, { timeout: 25000, headers: { "User-Agent": "Mozilla/5.0" } });
@@ -175,7 +201,7 @@ module.exports = [
                                 break;
                             }
                         } catch (e) {
-                            if (attempt < 8) await sleep(2000); // 2 seconds gap
+                            if (attempt < 8) await sleep(2000);
                         }
                     }
                 }

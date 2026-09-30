@@ -28,8 +28,14 @@ module.exports = {
                 throw new Error('Invalid response from MathAI API');
             }
 
-            // raw.content ആണ് നമ്മൾ മെസ്സേജ് ആയി അയക്കുന്നത് (അതിൽ ബോൾഡ് ഫോർമാറ്റ് ഒക്കെ ഉണ്ടാകും)
-            const answerText = res.data.raw.content.trim();
+            let answerText = res.data.raw.content.trim();
+
+            // 🔥 AI ഫോർമാറ്റിംഗ് വാട്സ്ആപ്പിന് അനുയോജ്യമായി മാറ്റുന്നു (Cleaning Extra Symbols)
+            answerText = answerText
+                .replace(/\$/g, '')        // $ ചിഹ്നങ്ങൾ പൂർണ്ണമായി ഒഴിവാക്കുന്നു
+                .replace(/\*\*/g, '*')     // ** എന്നുള്ളത് മാറ്റി വാട്സ്ആപ്പ് ബോൾഡ് (*) ആക്കുന്നു
+                .replace(/\\\(/g, '')      // \( ഒഴിവാക്കുന്നു                 .replace(/\\\)/g, '')      // \) ഒഴിവാക്കുന്നു
+                .replace(/\\\[/g, '')      // \[ ഒഴിവാക്കുന്നു                 .replace(/\\\]/g, '');     // \] ഒഴിവാക്കുന്നു
 
             const finalMessage = `🧮 *MATH AI*\n\n*Q:* ${query}\n\n${answerText}`;
 

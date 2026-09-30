@@ -8,11 +8,10 @@ module.exports = [
             const jid = msg.key.remoteJid;
             if (!jid.endsWith('@g.us')) return sock.sendMessage(jid, { text: "❌ *This command can only be used in groups!*" }, { quoted: msg });
 
-            // 🚨 PERFECT JID NORMALIZATION (Same as antidelete.js)
+            // 🚨 PERFECT JID NORMALIZATION
             const botNumber = sock.user.id.split(":")[0].replace(/[^0-9]/g, "");
-            const botJid = botNumber + '@s.whatsapp.net';
-
-            const senderRaw = msg.key.fromMe ? botJid : (msg.key.participant || msg.key.remoteJid || "");
+            
+            const senderRaw = msg.key.fromMe ? botNumber : (msg.key.participant || msg.key.remoteJid || "");
             const senderNumber = senderRaw.split(":")[0].replace(/[^0-9]/g, "");
             const senderJid = senderNumber + '@s.whatsapp.net';
 
@@ -25,8 +24,10 @@ module.exports = [
 
             // Check Admins
             const participants = groupMetadata.participants;
-            const botAdmin = participants.find(p => p.id === botJid && (p.admin === 'admin' || p.admin === 'superadmin'));
-            const senderAdmin = participants.find(p => p.id === senderJid && (p.admin === 'admin' || p.admin === 'superadmin'));
+            
+            // 🔥 Bot Admin Check FIX (Matching exact raw number to avoid : syntax issues)
+            const botAdmin = participants.find(p => p.id.split(":")[0].replace(/[^0-9]/g, "") === botNumber && (p.admin === 'admin' || p.admin === 'superadmin'));
+            const senderAdmin = participants.find(p => p.id.split(":")[0].replace(/[^0-9]/g, "") === senderNumber && (p.admin === 'admin' || p.admin === 'superadmin'));
 
             if (!senderAdmin && !isOwner) {
                 return sock.sendMessage(jid, { text: "❌ *Group Admins only!*" }, { quoted: msg });
@@ -48,13 +49,14 @@ module.exports = [
             if (!target) return sock.sendMessage(jid, { text: "❌ *Reply to or mention the user to kick!*" }, { quoted: msg });
 
             // Normalize Target ID securely
-            target = target.split(":")[0].replace(/[^0-9]/g, "") + '@s.whatsapp.net';
+            const targetNumber = target.split(":")[0].replace(/[^0-9]/g, "");
+            target = targetNumber + '@s.whatsapp.net';
 
-            if (target === botJid) return sock.sendMessage(jid, { text: "❌ *I can't kick myself!*" }, { quoted: msg });
-            if (target === senderJid && !msg.key.fromMe) return sock.sendMessage(jid, { text: "❌ *You can't kick yourself!*" }, { quoted: msg });
+            if (targetNumber === botNumber) return sock.sendMessage(jid, { text: "❌ *I can't kick myself!*" }, { quoted: msg });
+            if (targetNumber === senderNumber && !msg.key.fromMe) return sock.sendMessage(jid, { text: "❌ *You can't kick yourself!*" }, { quoted: msg });
 
             // Check if target is admin (Bot cannot kick creator)
-            const targetAdmin = participants.find(p => p.id === target && (p.admin === 'admin' || p.admin === 'superadmin'));
+            const targetAdmin = participants.find(p => p.id.split(":")[0].replace(/[^0-9]/g, "") === targetNumber && (p.admin === 'admin' || p.admin === 'superadmin'));
             if (targetAdmin && !isOwner) {
                 return sock.sendMessage(jid, { text: "❌ *You cannot kick another admin!*" }, { quoted: msg });
             }
@@ -62,7 +64,7 @@ module.exports = [
             try {
                 await sock.sendMessage(jid, { react: { text: "⏳", key: msg.key } });
                 await sock.groupParticipantsUpdate(jid, [target], "remove");
-                await sock.sendMessage(jid, { text: `✅ *@${target.split('@')[0]} has been kicked!*`, mentions: [target] }, { quoted: msg });
+                await sock.sendMessage(jid, { text: `✅ *@${targetNumber} has been kicked!*`, mentions: [target] }, { quoted: msg });
             } catch (e) {
                 console.error("Kick Error:", e);
                 await sock.sendMessage(jid, { react: { text: "❌", key: msg.key } });
@@ -81,11 +83,9 @@ module.exports = [
             if (!jid.endsWith('@g.us')) return sock.sendMessage(jid, { text: "❌ *This command can only be used in groups!*" }, { quoted: msg });
 
             const botNumber = sock.user.id.split(":")[0].replace(/[^0-9]/g, "");
-            const botJid = botNumber + '@s.whatsapp.net';
-
-            const senderRaw = msg.key.fromMe ? botJid : (msg.key.participant || msg.key.remoteJid || "");
+            
+            const senderRaw = msg.key.fromMe ? botNumber : (msg.key.participant || msg.key.remoteJid || "");
             const senderNumber = senderRaw.split(":")[0].replace(/[^0-9]/g, "");
-            const senderJid = senderNumber + '@s.whatsapp.net';
 
             let groupMetadata;
             try {
@@ -95,8 +95,10 @@ module.exports = [
             }
 
             const participants = groupMetadata.participants;
-            const botAdmin = participants.find(p => p.id === botJid && (p.admin === 'admin' || p.admin === 'superadmin'));
-            const senderAdmin = participants.find(p => p.id === senderJid && (p.admin === 'admin' || p.admin === 'superadmin'));
+            
+            // 🔥 Bot Admin Check FIX 
+            const botAdmin = participants.find(p => p.id.split(":")[0].replace(/[^0-9]/g, "") === botNumber && (p.admin === 'admin' || p.admin === 'superadmin'));
+            const senderAdmin = participants.find(p => p.id.split(":")[0].replace(/[^0-9]/g, "") === senderNumber && (p.admin === 'admin' || p.admin === 'superadmin'));
 
             if (!senderAdmin && !isOwner) {
                 return sock.sendMessage(jid, { text: "❌ *Group Admins only!*" }, { quoted: msg });
@@ -108,7 +110,10 @@ module.exports = [
 
             // Mattu adminmareyum botineyum ozhivakki membersine mathram select cheyyunnu
             const targetMembers = participants
-                .filter(p => p.id !== botJid && p.id !== senderJid && p.admin !== 'admin' && p.admin !== 'superadmin')
+                .filter(p => {
+                    const idNum = p.id.split(":")[0].replace(/[^0-9]/g, "");
+                    return idNum !== botNumber && idNum !== senderNumber && p.admin !== 'admin' && p.admin !== 'superadmin';
+                })
                 .map(p => p.id);
 
             if (targetMembers.length === 0) {

@@ -1,4 +1,4 @@
-// plugins/fb.js – KIRA X MD (Fixed Facebook Downloader with HD Priority & 8x Retry)
+// plugins/fb.js – KIRA X MD (Ultra Fast Promise.any Implementation)
 
 const axios = require("axios");
 
@@ -12,14 +12,11 @@ function decodeHTMLEntities(text) {
         .replace(/&gt;/g, '>');
 }
 
-// Sleep function for retry delay
-const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
-
 module.exports = {
     name: "fb",
     alias: ["facebook", "fbdl"],
     category: "downloader",
-    description: "Download Facebook videos in HD",
+    description: "Download Facebook videos in HD with Extreme Speed",
     usage: `${process.env.PREFIX || "."}fb <url>`,
 
     async execute(sock, msg, args) {
@@ -48,59 +45,40 @@ module.exports = {
         }
 
         try {
-            // Reaction ONLY loading
             await sock.sendMessage(jid, { react: { text: "⏳", key: msg.key } });
 
-            // 1. APIS
             const apis = [
                 `https://jerrycoder.oggyapi.workers.dev/down/fb?url=${encodeURIComponent(url)}`,
                 `https://kiraxmd-api.vercel.app/api/fb?url=${encodeURIComponent(url)}`,
-                `https://api-aswin-sparky.koyeb.app/api/downloader/fb?url=${encodeURIComponent(url)}`,
+                `https://api-aswin-sparky.koyeb.app/api/downloader/fb?url=${encodeURIComponent(url)}`
             ];
 
-            let data = null;
-            let success = false;
-
-            // 8x RETRY LOGIC FOR EACH API
-            for (const api of apis) {
-                if (success) break;
-
-                for (let attempt = 1; attempt <= 8; attempt++) {
-                    try {
-                        const res = await axios.get(api, { timeout: 25000, headers: { "User-Agent": "Mozilla/5.0" } });
-                        if (res.data) {
-                            data = res.data;
-                            success = true;
-                            break;
-                        }
-                    } catch (e) {
-                        if (attempt < 8) await sleep(2000); // 2 second delay before next try
-                    }
+            // 🚀 MEGA SPEED: Use Promise.any to fetch from the fastest API
+            const fetchApi = async (apiUrl) => {
+                const res = await axios.get(apiUrl, { timeout: 15000, headers: { "User-Agent": "Mozilla/5.0" } });
+                if (res.data) {
+                    return res.data;
                 }
-            }
+                throw new Error("Invalid response");
+            };
 
-            if (!data) throw new Error("All FB APIs failed after 8 retries");
+            const data = await Promise.any(apis.map(api => fetchApi(api)));
 
-            // 2. EXTRACT VIDEO URL (PRIORITIZING HD)
+            if (!data) throw new Error("All APIs failed");
+
+            // EXTRACT VIDEO URL (PRIORITIZING HD)
             let videoUrl = null;
 
-            // Checking new API format (data.results array)
             if (data?.results && Array.isArray(data.results)) {
-                // Priority 1: HD Quality
                 const hdVideo = data.results.find(v => v.quality && (v.quality.includes('HD') || v.quality.includes('720p')) && v.url && v.url.startsWith('http'));
-                
                 if (hdVideo) {
                     videoUrl = hdVideo.url;
                 } else {
-                    // Priority 2: SD Quality (Avoiding audio/kbps formats)
                     const sdVideo = data.results.find(v => v.quality && !v.quality.includes('kbps') && v.url && v.url.startsWith('http'));
-                    if (sdVideo) {
-                        videoUrl = sdVideo.url;
-                    }
+                    if (sdVideo) videoUrl = sdVideo.url;
                 }
             }
 
-            // Fallback for other APIs if the first one failed
             if (!videoUrl) {
                 const potentialVideos = [
                     data?.result?.hd, data?.result?.video, data?.result?.sd, data?.result?.url,
@@ -118,17 +96,16 @@ module.exports = {
 
             if (!videoUrl) throw new Error("No valid video string found");
 
-            // 3. EXTRACT TITLE
+            // EXTRACT TITLE
             const rawTitle = data?.title || data?.result?.title || data?.result?.desc || data?.data?.title || data?.data?.desc || "";
             const title = decodeHTMLEntities(rawTitle);
 
-            // 4. SEND VIDEO
+            // SEND VIDEO DIRECTLY
             await sock.sendMessage(jid, {
                 video: { url: videoUrl },
                 caption: title 
             }, { quoted: msg });
 
-            // Success Reaction
             await sock.sendMessage(jid, { react: { text: "✅", key: msg.key } });
 
         } catch (err) {

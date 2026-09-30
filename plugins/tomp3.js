@@ -1,8 +1,9 @@
-// plugins/tomp3.js - KIRA X MD (Anti-Hang Video to MP3 Fix)
+// plugins/tomp3.js - KIRA X MD (Ultra Fast & Stable Anti-Hang MP3 Converter)
 const { downloadContentFromMessage } = require("@whiskeysockets/baileys");
 const ffmpeg = require("fluent-ffmpeg");
 const fs = require("fs");
 const path = require("path");
+const { pipeline } = require("stream/promises"); // RAM ലാഭിക്കാൻ
 const { getSettings } = require("../lib/database");
 
 const ffmpegPath = path.join(__dirname, '../ffmpeg.exe');
@@ -13,7 +14,7 @@ if (fs.existsSync(ffmpegPath)) {
 // 🔥 FFmpeg-ന് സപ്പോർട്ട് ചെയ്യാത്ത ഫാൻസി ഫോണ്ടുകളും സ്പെഷ്യൽ ക്യാരക്ടറുകളും ഒഴിവാക്കാൻ
 function sanitizeMetadata(text, fallback) {
     if (!text) return fallback;
-    const cleaned = text.replace(/[^\x20-\x7E]/g, '').trim(); // Keeps only standard English characters & symbols
+    const cleaned = text.replace(/[^\x20-\x7E]/g, '').trim(); 
     return cleaned || fallback;
 }
 
@@ -21,7 +22,7 @@ module.exports = {
     name: "tomp3",
     alias: ["mp3", "video2mp3", "toaudio"],
     category: "media",
-    description: "Convert replied video to MP3 audio",
+    description: "Convert replied video to MP3 audio instantly",
     usage: `${process.env.PREFIX || '.'}mp3 (reply to a video)`,
 
     async execute(sock, msg, args) {
@@ -46,48 +47,39 @@ module.exports = {
             return await sock.sendMessage(jid, { text: "❌ *Please reply to a video!*" }, { quoted: msg });
         }
 
-        console.log("⬇️ [toMP3] Starting download...");
+        console.log("⬇️ [toMP3] Starting stable download...");
         await sock.sendMessage(jid, { react: { text: "⏳", key: msg.key } });
 
-        let inputPath, outputPath;
+        const tempDir = path.join(__dirname, "../temp");
+        if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
+
+        const ts = Date.now();
+        const inputPath = path.join(tempDir, `video_${ts}.mp4`);
+        const outputPath = path.join(tempDir, `audio_${ts}.mp3`);
+
         try {
+            // 🔥 1. ANTI-HANG FIX: RAM-ലേക്ക് ലോഡ് ചെയ്യാതെ നേരിട്ട് ഫയലിലേക്ക് എഴുതുന്നു
             const stream = await downloadContentFromMessage(videoMessage, 'video');
-            let buffer = Buffer.from([]);
-            for await (const chunk of stream) {
-                buffer = Buffer.concat([buffer, chunk]);
-            }
+            await pipeline(stream, fs.createWriteStream(inputPath));
             
-            console.log("✅ [toMP3] Video downloaded successfully. Size:", buffer.length);
+            console.log("✅ [toMP3] Video saved to disk. Starting fast extraction...");
 
-            if (buffer.length < 1000) {
-                throw new Error("Downloaded video buffer is empty or corrupted.");
-            }
-
-            const tempDir = path.join(__dirname, "../temp");
-            if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
-            
-            inputPath = path.join(tempDir, `video_${Date.now()}.mp4`);
-            outputPath = path.join(tempDir, `audio_${Date.now()}.mp3`);
-            
-            fs.writeFileSync(inputPath, buffer);
-            console.log("🔄 [toMP3] Starting FFmpeg conversion...");
-
-            // 🔥 Sanitize Names for FFmpeg Metadata to prevent crash
             const safeBotName = sanitizeMetadata(botName, "KIRA X MD");
             const safeOwnerName = sanitizeMetadata(ownerName, "Madhav");
 
-            // FFmpeg വഴി dynamic ടാഗുകൾ ചേർക്കുന്നു
+            // 🔥 2. ULTRA-FAST FIX: വീഡിയോ സ്ട്രീം പൂർണ്ണമായും ഒഴിവാക്കി ഓഡിയോ മാത്രം എടുക്കുന്നു
             await new Promise((resolve, reject) => {
                 ffmpeg(inputPath)
+                    .noVideo() // <--- THE BIGGEST SPEED HACK
                     .toFormat("mp3")
-                    .audioBitrate(128)
+                    .audioBitrate("128k")
                     .outputOptions([
                         '-metadata', `title=${safeBotName}`, 
                         '-metadata', `artist=${safeOwnerName}`,    
                         '-metadata', `album=${safeBotName}`
                     ])
                     .on("end", () => {
-                        console.log("✅ [toMP3] Conversion finished!");
+                        console.log("✅ [toMP3] Conversion finished instantly!");
                         resolve();
                     })
                     .on("error", (err) => {
@@ -102,9 +94,9 @@ module.exports = {
             
             await sock.sendMessage(jid, {
                 audio: audioBuffer,
-                mimetype: "audio/mp4",
+                mimetype: "audio/mp4", // WhatsApp officially uses this for some mp3s
                 ptt: false, 
-                fileName: `${safeBotName.replace(/\s+/g, '_')}_${Date.now()}.mp3`,
+                fileName: `${safeBotName.replace(/\s+/g, '_')}_${ts}.mp3`,
             }, { quoted: msg }); 
 
             await sock.sendMessage(jid, { react: { text: "✅", key: msg.key } });
@@ -118,9 +110,10 @@ module.exports = {
             }, { quoted: msg });
             
         } finally {
+            // കാഷെ ക്ലിയർ ചെയ്യുന്നു
             try {
-                if (inputPath && fs.existsSync(inputPath)) fs.unlinkSync(inputPath);
-                if (outputPath && fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
+                if (fs.existsSync(inputPath)) fs.unlinkSync(inputPath);
+                if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
             } catch (e) {}
         }
     }

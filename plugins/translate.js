@@ -2,7 +2,7 @@ const axios = require("axios");
 
 module.exports = {
     name: "translate",
-    alias: ["tr"],
+    alias: ["tr,tl,trl"],
     category: "tools",
     description: "Translate text",
 

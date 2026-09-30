@@ -1,16 +1,7 @@
-// plugins/play.js – KIRA X MD (Ultra Fast Audio Downloader - Ultimate Anti-Bot Bypass)
+// plugins/play.js – KIRA X MD (Ultra Fast Audio Downloader - No FFmpeg Delay)
 const ytSearch = require('yt-search');
 const axios = require('axios');
-const fs = require('fs');
-const path = require('path');
-const ffmpeg = require('fluent-ffmpeg');
 const { getSettings } = require('../lib/database');
-
-// FFmpeg Path Setup
-const ffmpegPath = path.join(__dirname, '../ffmpeg.exe');
-if (fs.existsSync(ffmpegPath)) {
-    ffmpeg.setFfmpegPath(ffmpegPath);
-}
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -18,7 +9,7 @@ module.exports = {
     name: 'play',
     alias: ['song', 'yta', 'music', 'audio'],
     category: 'downloader',
-    description: 'Search and play YouTube audio with high speed',
+    description: 'Search and play YouTube audio with extreme speed',
     usage: `${process.env.PREFIX || '.'}play <song name or link>`,
 
     async execute(sock, msg, args) {
@@ -36,7 +27,6 @@ module.exports = {
         try {
             const botNumber = sock.user?.id?.split(':')[0]?.replace(/[^0-9]/g, "") || "";
             const settings = typeof getSettings === 'function' ? (getSettings(botNumber) || {}) : {};
-            const botName = settings.botName || process.env.BOT_NAME || global.config?.BOT_NAME || 'KIRA X MD';
             const ownerName = settings.ownerName || process.env.OWNER_NAME || global.config?.OWNER_NAME || 'Madhav';
 
             statusMsg = await sock.sendMessage(jid, { text: `*Searching* : \`${query}\`` }, { quoted: msg });
@@ -81,14 +71,8 @@ module.exports = {
             if (statusMsg?.key) {
                 await sock.sendMessage(jid, { text: `*Downloading* : ${title} | ${artist}`, edit: statusMsg.key });
             }
-
-            const tempDir = path.join(__dirname, "../temp");
-            if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
-
-            const inputPath = path.join(tempDir, `play_in_${Date.now()}.mp3`);
-            const outputPath = path.join(tempDir, `play_out_${Date.now()}.mp3`);
             
-            let downloadedToDisk = false;
+            let audioBuffer = null;
 
             // Priority API List
             const apis = [
@@ -99,82 +83,52 @@ module.exports = {
                 `https://jerrycoder.oggyapi.workers.dev/down/ytmp3?url=${encodeURIComponent(url)}`
             ];
 
-            // 10 Retries per API with 20 seconds timeout and 3s gap
+            // Direct Buffer Download (Super Fast)
             for (const api of apis) {
-                if (downloadedToDisk) break;
+                if (audioBuffer) break;
                 
-                for (let i = 0; i < 10; i++) {
+                for (let i = 0; i < 3; i++) { // Reduced retry count to speed up failover
                     try {
-                        const res = await axios.get(api, { timeout: 20000, headers: { "User-Agent": "Mozilla/5.0" } });
+                        const res = await axios.get(api, { timeout: 15000, headers: { "User-Agent": "Mozilla/5.0" } });
                         const candidate = res.data?.result?.mp3 || res.data?.result?.url || res.data?.data?.dl || res.data?.data?.download || res.data?.download || res.data?.url || (typeof res.data?.result === "string" ? res.data.result : null) || (typeof res.data === "string" ? res.data : null);
 
                         if (candidate && typeof candidate === "string" && candidate.startsWith("http")) {
                             const audioResponse = await axios.get(candidate, { responseType: "arraybuffer", timeout: 20000 });
                             if (audioResponse.status === 200 && audioResponse.data) {
-                                fs.writeFileSync(inputPath, Buffer.from(audioResponse.data));
-                                downloadedToDisk = true;
+                                audioBuffer = Buffer.from(audioResponse.data);
                                 break; 
                             }
                         }
                     } catch (err) {}
 
-                    if (!downloadedToDisk && i < 9) {
-                        await sleep(3000); 
+                    if (!audioBuffer && i < 2) {
+                        await sleep(1000); // 1s gap instead of 3s to be faster
                     }
                 }
             }
 
-            if (!downloadedToDisk) {
+            if (!audioBuffer) {
                 throw new Error("All servers are temporarily blocked by YouTube. Please try again later.");
             }
 
             // ─────────────────────────────────────
-            // FFMPEG METADATA TAGGING
-            // ─────────────────────────────────────
-            let sendBuffer = null;
-
-            try {
-                await new Promise((resolve, reject) => {
-                    ffmpeg(inputPath)
-                        .audioBitrate(128)
-                        .outputOptions([
-                            `-metadata`, `title=${title}`, 
-                            `-metadata`, `artist=${artist}`,    
-                            `-metadata`, `album=${botName}`
-                        ])
-                        .on("end", () => {
-                            if (fs.existsSync(outputPath)) {
-                                sendBuffer = fs.readFileSync(outputPath); 
-                            }
-                            resolve();
-                        })
-                        .on("error", (err) => {
-                            if (fs.existsSync(inputPath)) {
-                                sendBuffer = fs.readFileSync(inputPath); 
-                            }
-                            resolve(); 
-                        })
-                        .save(outputPath);
-                });
-            } catch (err) {
-                if (fs.existsSync(inputPath)) sendBuffer = fs.readFileSync(inputPath);
-            } finally {
-                try {
-                    if (fs.existsSync(inputPath)) fs.unlinkSync(inputPath);
-                    if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
-                } catch (e) {}
-            }
-
-            if (!sendBuffer) throw new Error("Final audio processing failed.");
-
-            // ─────────────────────────────────────
-            // SEND AUDIO TO WHATSAPP
+            // SEND AUDIO DIRECTLY TO WHATSAPP
             // ─────────────────────────────────────
             await sock.sendMessage(jid, {
-                audio: sendBuffer,
+                audio: audioBuffer,
                 mimetype: "audio/mpeg",
                 ptt: false,
-                fileName: `${title.replace(/[^a-zA-Z0-9 ]/g, '')}.mp3`
+                fileName: `${title.replace(/[^a-zA-Z0-9 ]/g, '')}.mp3`,
+                contextInfo: {
+                    externalAdReply: {
+                        title: title,
+                        body: artist,
+                        mediaType: 1,
+                        thumbnailUrl: songInfo?.thumbnail || "https://i.pinimg.com/736x/8f/3e/eb/8f3eeb0c1097bd5a3a0eec26f1c71285.jpg", 
+                        sourceUrl: url,
+                        renderLargerThumbnail: true
+                    }
+                }
             }, { quoted: msg });
 
             if (statusMsg?.key) {

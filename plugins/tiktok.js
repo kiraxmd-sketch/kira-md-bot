@@ -1,4 +1,4 @@
-// plugins/tiktok.js - KIRA X MD (Fixed Video URL & Error Message)
+// plugins/tiktok.js - KIRA X MD (Ultra Fast Promise.any Implementation)
 
 const axios = require("axios");
 
@@ -50,19 +50,17 @@ module.exports = {
                 `https://jerrycoder.oggyapi.workers.dev/down/tiktok-v1?url=${encodeURIComponent(url)}`
             ];
 
-            let data = null;
-
-            for (const api of apis) {
-                try {
-                    const res = await axios.get(api, { timeout: 20000 });
-                    if (res.data) {
-                        data = res.data;
-                        break;
-                    }
-                } catch (e) {
-                    continue; // Adutha API nokkum
+            // 🚀 MEGA SPEED: Use Promise.any to get the first successful response instantly
+            const fetchApi = async (apiUrl) => {
+                const res = await axios.get(apiUrl, { timeout: 15000 });
+                if (res.data && (res.data.result || res.data.data)) {
+                    return res.data;
                 }
-            }
+                throw new Error("Invalid response from API");
+            };
+
+            // Run all APIs simultaneously and take the fastest one
+            const data = await Promise.any(apis.map(api => fetchApi(api)));
 
             if (!data) throw new Error("All APIs failed");
 
@@ -78,7 +76,7 @@ module.exports = {
                 data?.caption ||
                 "";
 
-            // ⚠️ FIX: Check if it's a valid string starting with 'http'
+            // Extract Video URL
             let video = null;
             const potentialLinks = [
                 data?.result?.no_watermark,
@@ -116,7 +114,6 @@ module.exports = {
         } catch (e) {
             console.log("TIKTOK ERROR:", e.message);
 
-            // ⚠️ FIX: Short custom error message as you requested
             await sock.sendMessage(jid, {
                 text: "❌ Something error please try again later ⚠️"
             }, { quoted: msg });

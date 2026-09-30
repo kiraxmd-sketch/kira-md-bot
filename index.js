@@ -421,12 +421,18 @@ async function startKira() {
                                 const isAdmin = member?.admin === "admin" || member?.admin === "superadmin"; 
                                 if (!isAdmin) { 
                                     const mode = config.antilinkMode?.[jid] || "delete"; 
-                                    try { await sock.sendMessage(jid, { delete: msg.key }); } catch {} 
-                                    if (mode === "warn") { await sock.sendMessage(jid, { text: `⚠️ *@${sender.split("@")[0]}*, WhatsApp group links are not allowed here.`, mentions: [sender] }); } 
-                                    else if (mode === "kick") { 
+                                    
+                                    // 🔥 വാണിംഗ് അല്ലെങ്കിൽ കിക്ക് മെസ്സേജ് ആദ്യം പോകുന്നു
+                                    if (mode === "warn") { 
+                                        await sock.sendMessage(jid, { text: `⚠️ *@${sender.split("@")[0]}*, WhatsApp group links are not allowed here.`, mentions: [sender] }); 
+                                    } else if (mode === "kick") { 
                                         await sock.sendMessage(jid, { text: `🚫 *@${sender.split("@")[0]}* sent a group link. Removing...`, mentions: [sender] }); 
                                         setTimeout(async () => { try { await sock.groupParticipantsUpdate(jid, [member?.id || realSender], "remove"); } catch {} }, 1000); 
                                     } 
+                                    
+                                    // 🔥 വാണിംഗിന് ശേഷം മാത്രം മെസ്സേജ് ഡിലീറ്റ് ചെയ്യുന്നു
+                                    try { await sock.sendMessage(jid, { delete: msg.key }); } catch {} 
+                                    
                                     continue; 
                                 } 
                             } catch (err) {} 
