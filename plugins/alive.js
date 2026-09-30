@@ -1,7 +1,8 @@
-// plugins/alive.js - KIRA X MD (Mass Alive & Custom Setter)
+// plugins/alive.js - KIRA X MD (Single Message Mass Alive)
 const os = require("os");
 const fs = require("fs");
 const path = require("path");
+const axios = require("axios");
 const { getSettings } = require("../lib/database");
 
 const dbPath = path.join(__dirname, '../alive_db.json');
@@ -64,7 +65,9 @@ module.exports = [
 
             // Default Assets
             const defaultImage = "https://static0.cbrimages.com/wordpress/wp-content/uploads/2023/06/17-most-heartbreaking-deaths-in-death-note-1.jpg";
-            const defaultAudio = "https://mp3tourl.com/audio/1790747327921-13a7100f-84af-4ed1-96ea-fe7450417816.mp3";
+            // 🔥 Using Catbox for direct reliable audio stream
+            const defaultAudio = "https://files.catbox.moe/19g98r.mp3"; 
+
             const defaultText = `🩸 *${toSmallCaps(botName)} ɪs ᴀʟɪᴠᴇ!*
 
 ❖ *ʙᴏᴛ:* ${botName}
@@ -77,54 +80,42 @@ _“I am Justice!”_`;
             // Fetch custom values from DB
             const userDb = customAliveDB[botNumber] || {};
             const finalImage = userDb.image || defaultImage;
-            const finalAudio = userDb.audio || defaultAudio;
+            const finalAudioUrl = userDb.audio || defaultAudio;
             
-            // Text logic (If user sets custom text, dynamic vars like uptime won't auto-update unless we do a replace, so we just append uptime if custom)
             let finalText = userDb.text || defaultText;
             if (userDb.text && !userDb.text.includes(uptimeString)) {
                 finalText += `\n\n⏱️ *Uptime:* ${uptimeString}`;
             }
 
-            // 1. Send Image with Caption
             try {
+                // 🔥 "Audio not available" error fix: Download audio as buffer first
+                const audioRes = await axios.get(finalAudioUrl, { responseType: 'arraybuffer', timeout: 20000 });
+                const audioBuffer = Buffer.from(audioRes.data);
+
+                // 🔥 Send as a single message: Audio + AdReply (Thumbnail) + Caption
+                await sock.sendMessage(jid, {
+                    audio: audioBuffer,
+                    mimetype: "audio/mpeg", 
+                    ptt: false, // Set to false to show as an audio file with a proper thumbnail above it
+                    contextInfo: {
+                        externalAdReply: {
+                            title: "Kɪʀᴀ ~ʜᴇʀᴇ",
+                            body: finalText, // Put the full alive text inside the AdReply body!
+                            thumbnailUrl: finalImage,
+                            sourceUrl: "https://whatsapp.com/channel/0029Vb87dNXATRSs169S8c1t", // Your channel link
+                            mediaType: 1, // 1 for Image
+                            renderLargerThumbnail: true // Makes the image big above the audio
+                        }
+                    }
+                }, { quoted: msg });
+
+            } catch (e) {
+                console.error("Alive Single Message Error", e);
+                // Fallback if audio fails: just send the image and text
                 await sock.sendMessage(jid, {
                     image: { url: finalImage },
-                    caption: finalText,
-                    contextInfo: {
-                        externalAdReply: {
-                            title: "Kɪʀᴀ ~ʜᴇʀᴇ",
-                            body: `Uptime: ${uptimeString}`,
-                            thumbnailUrl: finalImage,
-                            sourceUrl: "https://whatsapp.com/channel/0029Vb87dNXATRSs169S8c1t",
-                            mediaType: 1,
-                            renderLargerThumbnail: true
-                        }
-                    }
+                    caption: finalText
                 }, { quoted: msg });
-            } catch (e) {
-                console.error("Alive Image Error", e);
-                await sock.sendMessage(jid, { text: finalText }, { quoted: msg });
-            }
-
-            // 2. Send Audio (Voice Note)
-            try {
-                await sock.sendMessage(jid, {
-                    audio: { url: finalAudio },
-                    mimetype: "audio/ogg; codecs=opus",
-                    ptt: true,
-                    contextInfo: {
-                        externalAdReply: {
-                            title: "Kɪʀᴀ ~ʜᴇʀᴇ",
-                            body: "Alive Status",
-                            thumbnailUrl: finalImage,
-                            sourceUrl: "https://whatsapp.com/channel/0029Vb87dNXATRSs169S8c1t",
-                            mediaType: 1,
-                            renderLargerThumbnail: true
-                        }
-                    }
-                }, { quoted: msg });
-            } catch (e) {
-                console.error("Alive Audio Error", e);
             }
         }
     },
@@ -163,7 +154,7 @@ _“I am Justice!”_`;
             const urls = argsStr.match(urlRegex) || [];
 
             for (const u of urls) {
-                if (u.match(/\.(mp3|ogg|wav|m4a)$/i) || u.includes("audio") || u.includes("mp3tourl")) {
+                if (u.match(/\.(mp3|ogg|wav|m4a)$/i) || u.includes("audio") || u.includes("catbox") || u.includes("mp3tourl")) {
                     audioUrl = u;
                 } else if (u.match(/\.(jpe?g|png|gif|webp)$/i) || u.includes("image") || u.includes("cbrimages")) {
                     imageUrl = u;

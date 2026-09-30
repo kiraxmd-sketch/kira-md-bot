@@ -368,7 +368,7 @@ async function startKira() {
                     const isOwnerOrSudo = isOwner || sudo; 
                     const text = getMessageText(msg);
 
-                    // 🚫 BAN SYSTEM LOGIC (Ignore banned users/groups/DMs)
+                    // 🚫 BAN SYSTEM LOGIC
                     if (!isOwnerOrSudo) {
                         if (Array.isArray(config.bannedUsers) && config.bannedUsers.includes(sender)) continue;
                         if (isGroup && Array.isArray(config.bannedGroups) && config.bannedGroups.includes(jid)) continue;
@@ -389,10 +389,7 @@ async function startKira() {
                     const msgContent = msg.message.ephemeralMessage?.message || msg.message.viewOnceMessage?.message || msg.message.viewOnceMessageV2?.message || msg.message.documentWithCaptionMessage?.message || msg.message;
                     const hasMedia = msgContent.imageMessage || msgContent.videoMessage || msgContent.stickerMessage || msgContent.documentMessage || msgContent.audioMessage || msgContent.contactMessage;
                     
-                    // Ignore strictly empty messages safely
-                    if (!cleanText && !hasMedia) {
-                        continue;
-                    }
+                    if (!cleanText && !hasMedia) continue;
 
                     global.msgRateLimit = global.msgRateLimit || {};
                     const rateLimitKey = `${jid}:${sender}`;
@@ -422,7 +419,6 @@ async function startKira() {
                                 if (!isAdmin) { 
                                     const mode = config.antilinkMode?.[jid] || "delete"; 
                                     
-                                    // 🔥 വാണിംഗ് അല്ലെങ്കിൽ കിക്ക് മെസ്സേജ് ആദ്യം പോകുന്നു
                                     if (mode === "warn") { 
                                         await sock.sendMessage(jid, { text: `⚠️ *@${sender.split("@")[0]}*, WhatsApp group links are not allowed here.`, mentions: [sender] }); 
                                     } else if (mode === "kick") { 
@@ -430,20 +426,46 @@ async function startKira() {
                                         setTimeout(async () => { try { await sock.groupParticipantsUpdate(jid, [member?.id || realSender], "remove"); } catch {} }, 1000); 
                                     } 
                                     
-                                    // 🔥 വാണിംഗിന് ശേഷം മാത്രം മെസ്സേജ് ഡിലീറ്റ് ചെയ്യുന്നു
                                     try { await sock.sendMessage(jid, { delete: msg.key }); } catch {} 
-                                    
                                     continue; 
                                 } 
                             } catch (err) {} 
                         } 
+                    }
+
+                    // ANTI-STATUS MENTION LOGIC (New Addition)
+                    if (isGroup && config.antiStatusChats?.includes(jid) && !isOwnerOrSudo) {
+                        const isStatusMention = msg.message?.extendedTextMessage?.contextInfo?.remoteJid === "status@broadcast";
+                        
+                        if (isStatusMention) {
+                            try {
+                                const metadata = await sock.groupMetadata(jid); 
+                                const realSender = msg.key.participant || msg.participant || sender; 
+                                const member = metadata.participants.find((p) => p.id === realSender || p.id === sender || p.id?.split("@")[0] === sender.split("@")[0]); 
+                                const isAdmin = member?.admin === "admin" || member?.admin === "superadmin"; 
+                                
+                                if (!isAdmin) {
+                                    const mode = config.antiStatusMode?.[jid] || "delete"; 
+                                    
+                                    if (mode === "warn") { 
+                                        await sock.sendMessage(jid, { text: `⚠️ *@${sender.split("@")[0]}*, Replying to or forwarding WhatsApp Status is not allowed here.`, mentions: [sender] }); 
+                                    } else if (mode === "kick") { 
+                                        await sock.sendMessage(jid, { text: `🚫 *@${sender.split("@")[0]}* forwarded a Status. Removing...`, mentions: [sender] }); 
+                                        setTimeout(async () => { try { await sock.groupParticipantsUpdate(jid, [member?.id || realSender], "remove"); } catch {} }, 1000); 
+                                    } 
+                                    
+                                    try { await sock.sendMessage(jid, { delete: msg.key }); } catch {} 
+                                    continue; 
+                                }
+                            } catch (err) {}
+                        }
                     }
                     
                     const autoDlEnabled = config.autoDlChats?.includes(jid) || (config.autoDlAllGroups && isGroup) || (config.autoDlAllDms && !isGroup);
                     
                     if (autoDlEnabled && text && !text.startsWith(prefix)) { try { if (/instagram\.com/i.test(text)) { const insta = findCommand("insta"); if (insta) { await insta.execute(sock, msg, [text], isOwnerOrSudo); } continue; } if (/facebook\.com|fb\.watch|fb\.gg/i.test(text)) { const fb = findCommand("fb"); if (fb) { await fb.execute(sock, msg, [text], isOwnerOrSudo); } continue; } if (/youtube\.com|youtu\.be/i.test(text)) { const ytv = findCommand("ytv"); if (ytv) { await ytv.execute(sock, msg, [text], isOwnerOrSudo); } continue; } } catch (err) {} }
 
-                    // 🔥 FIX FOR NUMBER REPLY (Prevents empty numbers from causing errors)
+                    // 🔥 FIX FOR NUMBER REPLY 
                     const quotedMsg = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
                     
                     let isNumberReplyWithQuote = false;
@@ -451,7 +473,7 @@ async function startKira() {
 
                     if (quotedMsg && /^[.#!]?\d+$/.test(text.trim())) {
                         isNumberReplyWithQuote = true;
-                        parsedNumber = text.trim().replace(/^[.#!]?/, ''); // Keep only the number
+                        parsedNumber = text.trim().replace(/^[.#!]?/, ''); 
                     }
 
                     let args;
@@ -503,7 +525,7 @@ async function startKira() {
 
                     const command = findCommand(commandName); 
 
-                    // 🔥 Number Reply Fix (Ensures the number matches an actual command alias perfectly without running unrelated plugins)
+                    // 🔥 Number Reply Fix 
                     if (!command && isNumberReplyWithQuote && parsedNumber) {
                         const numberCommandMatch = commands.find((cmd) => Array.isArray(cmd.alias) && cmd.alias.some((alias) => String(alias).toLowerCase() === parsedNumber));
                         
@@ -512,15 +534,13 @@ async function startKira() {
                             if (numberCommandMatch.category === "owner" && !isOwnerOrSudo) continue;
                             
                             try { 
-                                // Re-inject the parsed number as an argument to let the plugin know what was requested
                                 await numberCommandMatch.execute(sock, msg, [parsedNumber], isOwnerOrSudo); 
                             } 
                             catch (cmdErr) { console.error(`❌ Number Command Error:`, cmdErr); }
                         }
-                        continue; // Skip the rest, we already handled the number reply
+                        continue; 
                     }
 
-                    // If neither command nor valid number reply exists, ignore gracefully
                     if (!command) continue;
 
                     if (config.botMode === "private" && !isOwnerOrSudo) continue;

@@ -1,8 +1,6 @@
-// plugins/insta.js - KIRA X MD (Multi-Bot Supported Version with Smart Retry)
+// plugins/insta.js - KIRA X MD (Ultra Fast Promise.any Implementation without Kira API)
 
 const axios = require("axios");
-
-const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 module.exports = [
     {
@@ -37,70 +35,36 @@ module.exports = [
             try {
                 await sock.sendMessage(jid, { react: { text: "⏳", key: msg.key } });
 
-                let items = null;
-                let success = false;
+                const apis = [
+                    `https://jerrycoder.oggyapi.workers.dev/down/insta?url=${encodeURIComponent(url)}`,
+                    `https://jerrycoder.oggyapi.workers.dev/down/insta-v1?url=${encodeURIComponent(url)}`,
+                    `https://jerrycoder.oggyapi.workers.dev/down/insta-v2?url=${encodeURIComponent(url)}`,
+                    `https://api-aswin-sparky.koyeb.app/api/downloader/igdl?url=${encodeURIComponent(url)}`
+                ];
 
-                // ─── 1. KIRA PRIMARY API (5 Retries, 15s Timeout) ───
-                const kiraApi = `https://kiraxmd-api.vercel.app/api/insta?url=${encodeURIComponent(url)}`;
-                for (let attempt = 1; attempt <= 5; attempt++) {
-                    try {
-                        const res = await axios.get(kiraApi, { timeout: 15000, headers: { "User-Agent": "Mozilla/5.0" } });
-                        const data = res.data;
-
-                        if (data?.data && Array.isArray(data.data) && data.data.length > 0) {
-                            items = data.data;
-                        } else if (data?.result && Array.isArray(data.result) && data.result.length > 0) {
-                            items = data.result;
-                        } else if (data?.urls && Array.isArray(data.urls) && data.urls.length > 0) {
-                            items = data.urls;
-                        }
-
-                        if (items) {
-                            success = true;
-                            break;
-                        }
-                    } catch (e) {
-                        if (attempt < 5) await sleep(2000); 
+                // 🚀 MEGA SPEED: Use Promise.any to fetch from the fastest API
+                const fetchApi = async (apiUrl) => {
+                    const res = await axios.get(apiUrl, { timeout: 15000, headers: { "User-Agent": "Mozilla/5.0" } });
+                    const data = res.data;
+                    
+                    let items = null;
+                    if (data?.data && Array.isArray(data.data) && data.data.length > 0) {
+                        items = data.data;
+                    } else if (data?.result && Array.isArray(data.result) && data.result.length > 0) {
+                        items = data.result;
+                    } else if (data?.urls && Array.isArray(data.urls) && data.urls.length > 0) {
+                        items = data.urls;
                     }
-                }
-
-                // ─── 2. FALLBACK APIS (8 Retries, 25s Timeout) ───
-                if (!success) {
-                    const fallbackApis = [
-                        `https://jerrycoder.oggyapi.workers.dev/down/insta?url=${encodeURIComponent(url)}`,
-                        `https://jerrycoder.oggyapi.workers.dev/down/insta-v1?url=${encodeURIComponent(url)}`,
-                        `https://jerrycoder.oggyapi.workers.dev/down/insta-v2?url=${encodeURIComponent(url)}`,
-                        `https://api-aswin-sparky.koyeb.app/api/downloader/igdl?url=${encodeURIComponent(url)}`
-                    ];
-
-                    for (const api of fallbackApis) {
-                        if (success) break;
-
-                        for (let attempt = 1; attempt <= 8; attempt++) {
-                            try {
-                                const res = await axios.get(api, { timeout: 25000, headers: { "User-Agent": "Mozilla/5.0" } });
-                                const data = res.data;
-
-                                if (data?.data && Array.isArray(data.data) && data.data.length > 0) {
-                                    items = data.data;
-                                } else if (data?.result && Array.isArray(data.result) && data.result.length > 0) {
-                                    items = data.result;
-                                } else if (data?.urls && Array.isArray(data.urls) && data.urls.length > 0) {
-                                    items = data.urls;
-                                }
-
-                                if (items) {
-                                    success = true;
-                                    break;
-                                }
-                            } catch (e) {
-                                if (attempt < 8) await sleep(2000);
-                            }
-                        }
+                    
+                    if (items) {
+                        return items;
                     }
-                }
+                    throw new Error("Invalid response");
+                };
 
-                if (!items) throw new Error("No data found after retries");
+                const items = await Promise.any(apis.map(api => fetchApi(api)));
+
+                if (!items) throw new Error("All APIs failed");
 
                 // ─── SENDING MEDIA ───
                 for (const item of items) {
@@ -175,38 +139,32 @@ module.exports = [
                     `https://api-aswin-sparky.koyeb.app/api/downloader/snapchat?url=${encodeURIComponent(url)}` 
                 ];
 
-                let mediaUrl = null;
-                let captionText = "";
-                let success = false;
-
-                for (const api of apis) {
-                    if (success) break;
-
-                    for (let attempt = 1; attempt <= 8; attempt++) {
-                        try {
-                            const res = await axios.get(api, { timeout: 25000, headers: { "User-Agent": "Mozilla/5.0" } });
-                            const data = res.data;
-
-                            if (data?.medias && data.medias.length > 0) {
-                                mediaUrl = data.medias[0].url;
-                                captionText = data.title || "";
-                            } else if (data?.data?.url) {
-                                mediaUrl = data.data.url;
-                            } else if (data?.url) {
-                                mediaUrl = data.url;
-                            }
-
-                            if (mediaUrl) {
-                                success = true;
-                                break;
-                            }
-                        } catch (e) {
-                            if (attempt < 8) await sleep(2000);
-                        }
+                 // 🚀 MEGA SPEED: Use Promise.any to fetch from the fastest API
+                const fetchSnapApi = async (apiUrl) => {
+                    const res = await axios.get(apiUrl, { timeout: 15000, headers: { "User-Agent": "Mozilla/5.0" } });
+                    const data = res.data;
+                    
+                    let mediaUrl = null;
+                    let captionText = "";
+                    
+                    if (data?.medias && data.medias.length > 0) {
+                        mediaUrl = data.medias[0].url;
+                        captionText = data.title || "";
+                    } else if (data?.data?.url) {
+                        mediaUrl = data.data.url;
+                    } else if (data?.url) {
+                        mediaUrl = data.url;
                     }
-                }
+                    
+                    if (mediaUrl) {
+                        return { mediaUrl, captionText };
+                    }
+                    throw new Error("Invalid response");
+                };
+                
+                const { mediaUrl, captionText } = await Promise.any(apis.map(api => fetchSnapApi(api)));
 
-                if (!mediaUrl) throw new Error("No media found after 8 retries");
+                if (!mediaUrl) throw new Error("No media found");
 
                 const mediaResponse = await axios.get(mediaUrl, { 
                     responseType: 'arraybuffer',

@@ -6,54 +6,100 @@ const path = require("path");
 const tempDir = path.join(process.cwd(), 'temp');
 if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
 
-module.exports = {
-    name: "flip",
-    category: "media",
-    description: "Flip video horizontally",
-    usage: ".flip (reply to video)",
+module.exports = [
+    {
+        name: "flip",
+        category: "media",
+        description: "Flip video horizontally",
+        usage: ".flip (reply to video)",
 
-    async execute(sock, msg, args) {
-        const jid = msg.key.remoteJid;
-        const quoted = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
-        
-        if (!quoted || !quoted.videoMessage) {
-            return await sock.sendMessage(jid, { text: "❌ *Reply to a video!*" }, { quoted: msg });
+        async execute(sock, msg, args) {
+            const jid = msg.key.remoteJid;
+            const quoted = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
+            
+            if (!quoted || !quoted.videoMessage) {
+                return await sock.sendMessage(jid, { text: "❌ *Reply to a video!*" }, { quoted: msg });
+            }
+            
+            await sock.sendMessage(jid, { react: { text: "⏳", key: msg.key } });
+            
+            let inputPath, outputPath;
+            try {
+                const buffer = await downloadMediaMessage({ message: quoted }, "buffer", {}, { logger: console });
+                
+                inputPath = path.join(tempDir, `flip_in_${Date.now()}.mp4`);
+                outputPath = path.join(tempDir, `flip_out_${Date.now()}.mp4`);
+                fs.writeFileSync(inputPath, buffer);
+                
+                await new Promise((resolve, reject) => {
+                    ffmpeg(inputPath)
+                        .videoFilter("hflip")
+                        .output(outputPath)
+                        .on("end", resolve)
+                        .on("error", reject)
+                        .run();
+                });
+                
+                const videoBuffer = fs.readFileSync(outputPath);
+                
+                // ഫ്ലിപ്പ് ചെയ്ത വീഡിയോ അയക്കുന്നു (No Watermark)
+                await sock.sendMessage(jid, { video: videoBuffer, mimetype: "video/mp4", caption: "🪞 *Flipped Video*" }, { quoted: msg });
+                await sock.sendMessage(jid, { react: { text: "✅", key: msg.key } });
+                
+            } catch (err) {
+                console.error("FLIP ERROR:", err.message);
+                await sock.sendMessage(jid, { react: { text: "❌", key: msg.key } });
+                await sock.sendMessage(jid, { text: "❌ Failed to flip video." }, { quoted: msg });
+            } finally { 
+                try { 
+                    if (inputPath && fs.existsSync(inputPath)) fs.unlinkSync(inputPath); 
+                    if (outputPath && fs.existsSync(outputPath)) fs.unlinkSync(outputPath); 
+                } catch (e) {} 
+            }
         }
-        
-        await sock.sendMessage(jid, { react: { text: "⏳", key: msg.key } });
-        
-        let inputPath, outputPath;
-        try {
-            const buffer = await downloadMediaMessage({ message: quoted }, "buffer", {}, { logger: console });
+    },
+    {
+        name: "caption",
+        alias: ["setcaption", "addcaption"],
+        category: "media",
+        description: "Add or change caption of an image or video",
+        usage: ".caption <text> (reply to image/video)",
+
+        async execute(sock, msg, args) {
+            const jid = msg.key.remoteJid;
+            const quoted = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
+            const newCaption = args.join(" ").trim();
             
-            inputPath = path.join(tempDir, `flip_in_${Date.now()}.mp4`);
-            outputPath = path.join(tempDir, `flip_out_${Date.now()}.mp4`);
-            fs.writeFileSync(inputPath, buffer);
+            if (!quoted || (!quoted.imageMessage && !quoted.videoMessage)) {
+                return await sock.sendMessage(jid, { text: "❌ *Reply to an image or video!*" }, { quoted: msg });
+            }
+
+            if (!newCaption) {
+                return await sock.sendMessage(jid, { text: "❌ *Provide a text or emoji for the caption!*\n_Example: .caption My new video!_" }, { quoted: msg });
+            }
             
-            await new Promise((resolve, reject) => {
-                ffmpeg(inputPath)
-                    .videoFilter("hflip")
-                    .output(outputPath)
-                    .on("end", resolve)
-                    .on("error", reject)
-                    .run();
-            });
+            await sock.sendMessage(jid, { react: { text: "⏳", key: msg.key } });
             
-            const videoBuffer = fs.readFileSync(outputPath);
-            
-            // സ്റ്റാറ്റസ് മെസ്സേജ് ഇല്ലാതെ ഫ്ലിപ്പ് ചെയ്ത വീഡിയോ അയക്കുന്നു (No Watermark)
-            await sock.sendMessage(jid, { video: videoBuffer, mimetype: "video/mp4", caption: "🪞 *Flipped Video*" }, { quoted: msg });
-            await sock.sendMessage(jid, { react: { text: "✅", key: msg.key } });
-            
-        } catch (err) {
-            console.error("FLIP ERROR:", err.message);
-            await sock.sendMessage(jid, { react: { text: "❌", key: msg.key } });
-            await sock.sendMessage(jid, { text: "❌ Failed to flip video." }, { quoted: msg });
-        } finally { 
-            try { 
-                if (inputPath && fs.existsSync(inputPath)) fs.unlinkSync(inputPath); 
-                if (outputPath && fs.existsSync(outputPath)) fs.unlinkSync(outputPath); 
-            } catch (e) {} 
+            try {
+                // മീഡിയ ഡൗൺലോഡ് ചെയ്യുന്നു
+                const buffer = await downloadMediaMessage({ message: quoted }, "buffer", {}, { logger: console });
+                
+                // ഇമേജ് ആണെങ്കിൽ
+                if (quoted.imageMessage) {
+                    await sock.sendMessage(jid, { image: buffer, caption: newCaption }, { quoted: msg });
+                } 
+                // വീഡിയോ ആണെങ്കിൽ
+                else if (quoted.videoMessage) {
+                    await sock.sendMessage(jid, { video: buffer, mimetype: quoted.videoMessage.mimetype || "video/mp4", caption: newCaption }, { quoted: msg });
+                }
+
+                await sock.sendMessage(jid, { react: { text: "✅", key: msg.key } });
+                
+            } catch (err) {
+                console.error("CAPTION ERROR:", err.message);
+                await sock.sendMessage(jid, { react: { text: "❌", key: msg.key } });
+                await sock.sendMessage(jid, { text: "❌ Failed to set caption." }, { quoted: msg });
+            }
         }
     }
-};
+];
