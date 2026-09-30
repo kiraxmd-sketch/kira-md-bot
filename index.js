@@ -389,7 +389,15 @@ async function startKira() {
                     const msgContent = msg.message.ephemeralMessage?.message || msg.message.viewOnceMessage?.message || msg.message.viewOnceMessageV2?.message || msg.message.documentWithCaptionMessage?.message || msg.message;
                     const hasMedia = msgContent.imageMessage || msgContent.videoMessage || msgContent.stickerMessage || msgContent.documentMessage || msgContent.audioMessage || msgContent.contactMessage;
                     
-                    if (!cleanText && !hasMedia) continue;
+                    // 🔥 EMPTY MESSAGE LOG ADDED HERE
+                    if (!cleanText && !hasMedia) {
+                        console.log("\n⚠️ --- EMPTY/UNKNOWN MESSAGE DETECTED ---");
+                        console.log("➤ Sender :", sender);
+                        console.log("➤ Chat   :", jid);
+                        console.log("➤ Content:", JSON.stringify(msg, null, 2));
+                        console.log("------------------------------------------\n");
+                        continue; 
+                    }
 
                     global.msgRateLimit = global.msgRateLimit || {};
                     const rateLimitKey = `${jid}:${sender}`;
@@ -433,7 +441,7 @@ async function startKira() {
                         } 
                     }
 
-                    // ANTI-STATUS MENTION LOGIC (New Addition)
+                    // ANTI-STATUS MENTION LOGIC
                     if (isGroup && config.antiStatusChats?.includes(jid) && !isOwnerOrSudo) {
                         const isStatusMention = msg.message?.extendedTextMessage?.contextInfo?.remoteJid === "status@broadcast";
                         
