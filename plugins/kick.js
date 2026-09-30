@@ -1,33 +1,38 @@
-// plugins/kick.js
+// ============================================================
+// KICK.JS
+// Fixed for WhatsApp JID formats such as:
+// 917907199765:9@s.whatsapp.net
+// 917907199765@s.whatsapp.net
+// @lid / device-suffixed participant IDs
+// ============================================================
 
-function cleanNumber(jid = "") {
+function getNumber(jid = "") {
     return String(jid)
-        .split(":")[0]
         .split("@")[0]
+        .split(":")[0]
         .replace(/[^0-9]/g, "");
 }
 
 function isAdmin(participant) {
-    return participant?.admin === "admin" ||
-           participant?.admin === "superadmin";
+    return (
+        participant?.admin === "admin" ||
+        participant?.admin === "superadmin"
+    );
 }
 
-function findParticipant(participants, jid) {
-    if (!jid) return null;
+function findParticipantByNumber(participants, jidOrNumber) {
+    const number = getNumber(jidOrNumber);
 
-    const targetNumber = cleanNumber(jid);
+    if (!number) return null;
 
-    return participants.find(p => {
-        const participantNumber = cleanNumber(p.id);
-
-        return (
-            p.id === jid ||
-            participantNumber === targetNumber
-        );
-    });
+    return (
+        participants.find((participant) => {
+            return getNumber(participant?.id) === number;
+        }) || null
+    );
 }
 
-function getSenderJid(msg, sock) {
+function getSenderRaw(msg, sock) {
     if (msg.key?.fromMe) {
         return sock.user?.id || "";
     }
@@ -38,6 +43,31 @@ function getSenderJid(msg, sock) {
         msg.key?.remoteJid ||
         ""
     );
+}
+
+function getTargetFromMessage(msg, args = []) {
+    const contextInfo =
+        msg.message?.extendedTextMessage?.contextInfo ||
+        msg.message?.imageMessage?.contextInfo ||
+        msg.message?.videoMessage?.contextInfo ||
+        msg.message?.documentMessage?.contextInfo ||
+        {};
+
+    // Reply target
+    const quotedJid = contextInfo?.participant;
+
+    // Mention target
+    const mentionedJid =
+        Array.isArray(contextInfo?.mentionedJid) &&
+        contextInfo.mentionedJid.length
+            ? contextInfo.mentionedJid[0]
+            : null;
+
+    // Priority:
+    // 1. Reply
+    // 2. Mention
+    // 3. Number argument
+    return quotedJid || mentionedJid || args[0] || null;
 }
 
 module.exports = [
@@ -54,49 +84,122 @@ module.exports = [
 
             const jid = msg.key?.remoteJid;
 
-            if (!jid?.endsWith("@g.us")) {
+            // ----------------------------------------------------
+            // GROUP CHECK
+            // ----------------------------------------------------
+            if (!jid || !jid.endsWith("@g.us")) {
                 return sock.sendMessage(
                     jid,
-                    { text: "❌ *This command can only be used in groups!*" },
+                    {
+                        text:
+                            "❌ *This command can only be used in groups!*"
+                    },
                     { quoted: msg }
                 );
             }
 
-            let metadata;
+            // ----------------------------------------------------
+            // GET GROUP METADATA
+            // ----------------------------------------------------
+            let groupMetadata;
 
             try {
-                metadata = await sock.groupMetadata(jid);
-            } catch (err) {
-                console.error("Kick metadata error:", err);
+                groupMetadata = await sock.groupMetadata(jid);
+            } catch (error) {
+
+                console.error(
+                    "❌ Kick metadata error:",
+                    error
+                );
 
                 return sock.sendMessage(
                     jid,
-                    { text: "❌ *Failed to get group metadata!*" },
+                    {
+                        text:
+                            "❌ *Failed to get group metadata!*"
+                    },
                     { quoted: msg }
                 );
             }
 
-            const participants = metadata?.participants || [];
+            const participants =
+                groupMetadata?.participants || [];
+
+            if (!participants.length) {
+                return sock.sendMessage(
+                    jid,
+                    {
+                        text:
+                            "❌ *Could not find group participants!*"
+                    },
+                    { quoted: msg }
+                );
+            }
 
             // ----------------------------------------------------
-            // BOT
+            // BOT INFORMATION
             // ----------------------------------------------------
             const botJid = sock.user?.id || "";
-            const botNumber = cleanNumber(botJid);
+            const botNumber = getNumber(botJid);
 
-            const botParticipant = findParticipant(
-                participants,
-                botJid
-            );
+            if (!botNumber) {
+                return sock.sendMessage(
+                    jid,
+                    {
+                        text:
+                            "❌ *Could not detect bot number!*"
+                    },
+                    { quoted: msg }
+                );
+            }
 
-            const botAdmin = isAdmin(botParticipant);
+            // IMPORTANT:
+            // Find bot by NUMBER, not exact JID.
+            const botParticipant =
+                findParticipantByNumber(
+                    participants,
+                    botNumber
+                );
 
-            console.log("========== KICK DEBUG ==========");
+            const botAdmin =
+                isAdmin(botParticipant);
+
+            // ----------------------------------------------------
+            // DEBUG
+            // ----------------------------------------------------
+            console.log("\n========== KICK DEBUG ==========");
             console.log("Bot JID:", botJid);
             console.log("Bot Number:", botNumber);
-            console.log("Bot Participant:", botParticipant);
-            console.log("Bot Admin:", botAdmin);
 
+            console.log(
+                "Group Participants:"
+            );
+
+            for (const participant of participants) {
+                console.log({
+                    id: participant?.id,
+                    number: getNumber(participant?.id),
+                    admin: participant?.admin || null
+                });
+            }
+
+            console.log(
+                "Bot Participant:",
+                botParticipant
+            );
+
+            console.log(
+                "Bot Admin:",
+                botAdmin
+            );
+
+            console.log(
+                "================================\n"
+            );
+
+            // ----------------------------------------------------
+            // BOT ADMIN CHECK
+            // ----------------------------------------------------
             if (!botAdmin) {
                 return sock.sendMessage(
                     jid,
@@ -104,54 +207,66 @@ module.exports = [
                         text:
                             "❌ *I need admin privileges first!*\n\n" +
                             `🤖 Bot: ${botNumber}\n` +
-                            "🛡️ Status: Not detected as admin"
+                            "🛡️ Admin status: Not detected\n\n" +
+                            "Please make the bot a group admin and try again."
                     },
                     { quoted: msg }
                 );
             }
 
             // ----------------------------------------------------
-            // SENDER
+            // SENDER INFORMATION
             // ----------------------------------------------------
-            const senderJid = getSenderJid(msg, sock);
-            const senderNumber = cleanNumber(senderJid);
+            const senderJid =
+                getSenderRaw(msg, sock);
 
-            const senderParticipant = findParticipant(
-                participants,
-                senderJid
-            );
+            const senderNumber =
+                getNumber(senderJid);
 
-            const senderAdmin = isAdmin(senderParticipant);
+            const senderParticipant =
+                findParticipantByNumber(
+                    participants,
+                    senderNumber
+                );
 
+            const senderAdmin =
+                isAdmin(senderParticipant);
+
+            console.log("========== SENDER DEBUG ==========");
             console.log("Sender JID:", senderJid);
             console.log("Sender Number:", senderNumber);
-            console.log("Sender Participant:", senderParticipant);
-            console.log("Sender Admin:", senderAdmin);
-            console.log("================================");
+            console.log(
+                "Sender Participant:",
+                senderParticipant
+            );
+            console.log(
+                "Sender Admin:",
+                senderAdmin
+            );
+            console.log("==================================");
 
+            // ----------------------------------------------------
+            // SENDER ADMIN CHECK
+            // ----------------------------------------------------
             if (!senderAdmin && !isOwner) {
                 return sock.sendMessage(
                     jid,
-                    { text: "❌ *Group Admins only!*" },
+                    {
+                        text:
+                            "❌ *Group Admins only!*"
+                    },
                     { quoted: msg }
                 );
             }
 
             // ----------------------------------------------------
-            // TARGET
+            // GET TARGET
             // ----------------------------------------------------
-            const contextInfo =
-                msg.message?.extendedTextMessage?.contextInfo;
-
-            const quotedJid = contextInfo?.participant;
-
-            const mentionedJid =
-                contextInfo?.mentionedJid?.[0];
-
             let target =
-                quotedJid ||
-                mentionedJid ||
-                args?.[0];
+                getTargetFromMessage(
+                    msg,
+                    args
+                );
 
             if (!target) {
                 return sock.sendMessage(
@@ -159,85 +274,148 @@ module.exports = [
                     {
                         text:
                             "❌ *Reply to or mention the user to kick!*\n\n" +
-                            "Example:\n" +
-                            ".kick @user"
+                            "Examples:\n" +
+                            "• Reply to a message → `.kick`\n" +
+                            "• Mention → `.kick @user`\n" +
+                            "• Number → `.kick 919876543210`"
                     },
                     { quoted: msg }
                 );
             }
 
-            // If user gives 919876543210 instead of JID
-            if (!String(target).includes("@")) {
-                target =
-                    cleanNumber(target) +
-                    "@s.whatsapp.net";
+            // ----------------------------------------------------
+            // TARGET NORMALIZATION
+            // ----------------------------------------------------
+            const targetNumber =
+                getNumber(target);
+
+            if (!targetNumber) {
+                return sock.sendMessage(
+                    jid,
+                    {
+                        text:
+                            "❌ *Invalid target number!*"
+                    },
+                    { quoted: msg }
+                );
             }
 
+            // Find the actual participant from metadata.
             const targetParticipant =
-                findParticipant(participants, target);
+                findParticipantByNumber(
+                    participants,
+                    targetNumber
+                );
 
             if (!targetParticipant) {
                 return sock.sendMessage(
                     jid,
                     {
-                        text: "❌ *That user is not a member of this group!*"
+                        text:
+                            "❌ *That user is not a member of this group!*"
                     },
                     { quoted: msg }
                 );
             }
 
-            const targetJid = targetParticipant.id;
-            const targetNumber = cleanNumber(targetJid);
+            // IMPORTANT:
+            // Always use the actual JID returned by groupMetadata.
+            const targetJid =
+                targetParticipant.id;
 
             // ----------------------------------------------------
-            // SAFETY CHECKS
+            // TARGET DEBUG
+            // ----------------------------------------------------
+            console.log("\n========== TARGET DEBUG ==========");
+            console.log("Requested Target:", target);
+            console.log("Target Number:", targetNumber);
+            console.log(
+                "Target Participant:",
+                targetParticipant
+            );
+            console.log(
+                "Actual Target JID:",
+                targetJid
+            );
+            console.log("==================================\n");
+
+            // ----------------------------------------------------
+            // DON'T KICK BOT
             // ----------------------------------------------------
             if (targetNumber === botNumber) {
                 return sock.sendMessage(
                     jid,
-                    { text: "❌ *I can't kick myself!*" },
+                    {
+                        text:
+                            "❌ *I can't kick myself!*"
+                    },
                     { quoted: msg }
                 );
             }
 
+            // ----------------------------------------------------
+            // DON'T KICK YOURSELF
+            // ----------------------------------------------------
             if (
                 targetNumber === senderNumber &&
                 !msg.key?.fromMe
             ) {
                 return sock.sendMessage(
                     jid,
-                    { text: "❌ *You can't kick yourself!*" },
-                    { quoted: msg }
-                );
-            }
-
-            const targetIsAdmin =
-                isAdmin(targetParticipant);
-
-            if (targetIsAdmin && !isOwner) {
-                return sock.sendMessage(
-                    jid,
-                    { text: "❌ *You cannot kick another admin!*" },
+                    {
+                        text:
+                            "❌ *You can't kick yourself!*"
+                    },
                     { quoted: msg }
                 );
             }
 
             // ----------------------------------------------------
-            // REMOVE
+            // TARGET ADMIN CHECK
+            // ----------------------------------------------------
+            const targetAdmin =
+                isAdmin(targetParticipant);
+
+            if (targetAdmin && !isOwner) {
+                return sock.sendMessage(
+                    jid,
+                    {
+                        text:
+                            "❌ *You cannot kick another admin!*"
+                    },
+                    { quoted: msg }
+                );
+            }
+
+            // ----------------------------------------------------
+            // REMOVE TARGET
             // ----------------------------------------------------
             try {
 
-                await sock.sendMessage(jid, {
-                    react: {
-                        text: "⏳",
-                        key: msg.key
-                    }
-                });
-
-                await sock.groupParticipantsUpdate(
+                await sock.sendMessage(
                     jid,
-                    [targetJid],
-                    "remove"
+                    {
+                        react: {
+                            text: "⏳",
+                            key: msg.key
+                        }
+                    }
+                );
+
+                console.log(
+                    `🚨 Removing ${targetJid} from ${jid}`
+                );
+
+                const result =
+                    await sock.groupParticipantsUpdate(
+                        jid,
+                        [targetJid],
+                        "remove"
+                    );
+
+                console.log(
+                    "Kick result:",
+                    result
                 );
 
                 await sock.sendMessage(
@@ -250,16 +428,24 @@ module.exports = [
                     { quoted: msg }
                 );
 
-            } catch (err) {
+            } catch (error) {
 
-                console.error("❌ Kick Error:", err);
+                console.error(
+                    "❌ Kick Error:",
+                    error
+                );
 
-                await sock.sendMessage(jid, {
-                    react: {
-                        text: "❌",
-                        key: msg.key
-                    }
-                });
+                try {
+                    await sock.sendMessage(
+                        jid,
+                        {
+                            react: {
+                                text: "❌",
+                                key: msg.key
+                            }
+                        }
+                    );
+                } catch {}
 
                 await sock.sendMessage(
                     jid,
@@ -267,8 +453,9 @@ module.exports = [
                         text:
                             "❌ *Failed to remove the user!*\n\n" +
                             "Possible reasons:\n" +
-                            "• Bot lost admin privileges\n" +
-                            "• Target is group creator/admin\n" +
+                            "• Bot is no longer admin\n" +
+                            "• Target is the group creator\n" +
+                            "• Target is an admin\n" +
                             "• WhatsApp rejected the operation"
                     },
                     { quoted: msg }
@@ -283,57 +470,129 @@ module.exports = [
     {
         name: "kickall",
         category: "group",
-        description: "Remove all non-admin members",
+        description: "Remove all non-admin members from the group",
 
         async execute(sock, msg, args, isOwner) {
 
             const jid = msg.key?.remoteJid;
 
-            if (!jid?.endsWith("@g.us")) {
+            // ----------------------------------------------------
+            // GROUP CHECK
+            // ----------------------------------------------------
+            if (!jid || !jid.endsWith("@g.us")) {
                 return sock.sendMessage(
                     jid,
-                    { text: "❌ *This command can only be used in groups!*" },
+                    {
+                        text:
+                            "❌ *This command can only be used in groups!*"
+                    },
                     { quoted: msg }
                 );
             }
 
-            let metadata;
+            // ----------------------------------------------------
+            // GROUP METADATA
+            // ----------------------------------------------------
+            let groupMetadata;
 
             try {
-                metadata = await sock.groupMetadata(jid);
-            } catch (err) {
-                console.error("Kickall metadata error:", err);
+                groupMetadata =
+                    await sock.groupMetadata(jid);
+            } catch (error) {
+
+                console.error(
+                    "❌ Kickall metadata error:",
+                    error
+                );
 
                 return sock.sendMessage(
                     jid,
-                    { text: "❌ *Failed to get group metadata!*" },
+                    {
+                        text:
+                            "❌ *Failed to get group metadata!*"
+                    },
                     { quoted: msg }
                 );
             }
 
             const participants =
-                metadata?.participants || [];
+                groupMetadata?.participants || [];
+
+            if (!participants.length) {
+                return sock.sendMessage(
+                    jid,
+                    {
+                        text:
+                            "❌ *Could not find group participants!*"
+                    },
+                    { quoted: msg }
+                );
+            }
 
             // ----------------------------------------------------
-            // BOT CHECK
+            // BOT
             // ----------------------------------------------------
-            const botJid = sock.user?.id || "";
-            const botNumber = cleanNumber(botJid);
+            const botJid =
+                sock.user?.id || "";
 
+            const botNumber =
+                getNumber(botJid);
+
+            if (!botNumber) {
+                return sock.sendMessage(
+                    jid,
+                    {
+                        text:
+                            "❌ *Could not detect bot number!*"
+                    },
+                    { quoted: msg }
+                );
+            }
+
+            // Find bot by number.
             const botParticipant =
-                findParticipant(
+                findParticipantByNumber(
                     participants,
-                    botJid
+                    botNumber
                 );
 
             const botAdmin =
                 isAdmin(botParticipant);
 
-            console.log("========== KICKALL DEBUG ==========");
-            console.log("Bot JID:", botJid);
-            console.log("Bot Participant:", botParticipant);
-            console.log("Bot Admin:", botAdmin);
+            // ----------------------------------------------------
+            // KICKALL DEBUG
+            // ----------------------------------------------------
+            console.log(
+                "\n========== KICKALL DEBUG =========="
+            );
 
+            console.log(
+                "Bot JID:",
+                botJid
+            );
+
+            console.log(
+                "Bot Number:",
+                botNumber
+            );
+
+            console.log(
+                "Bot Participant:",
+                botParticipant
+            );
+
+            console.log(
+                "Bot Admin:",
+                botAdmin
+            );
+
+            console.log(
+                "===================================\n"
+            );
+
+            // ----------------------------------------------------
+            // BOT ADMIN CHECK
+            // ----------------------------------------------------
             if (!botAdmin) {
                 return sock.sendMessage(
                     jid,
@@ -341,74 +600,120 @@ module.exports = [
                         text:
                             "❌ *I need admin privileges first!*\n\n" +
                             `🤖 Bot: ${botNumber}\n` +
-                            "🛡️ Status: Not detected as admin"
+                            "🛡️ Admin status: Not detected\n\n" +
+                            "Please make the bot a group admin and try again."
                     },
                     { quoted: msg }
                 );
             }
 
             // ----------------------------------------------------
-            // SENDER CHECK
+            // SENDER
             // ----------------------------------------------------
             const senderJid =
-                getSenderJid(msg, sock);
+                getSenderRaw(msg, sock);
 
             const senderNumber =
-                cleanNumber(senderJid);
+                getNumber(senderJid);
 
             const senderParticipant =
-                findParticipant(
+                findParticipantByNumber(
                     participants,
-                    senderJid
+                    senderNumber
                 );
 
             const senderAdmin =
                 isAdmin(senderParticipant);
 
-            console.log("Sender JID:", senderJid);
-            console.log("Sender Participant:", senderParticipant);
-            console.log("Sender Admin:", senderAdmin);
-            console.log("===================================");
+            console.log(
+                "\n========== SENDER DEBUG =========="
+            );
 
+            console.log(
+                "Sender JID:",
+                senderJid
+            );
+
+            console.log(
+                "Sender Number:",
+                senderNumber
+            );
+
+            console.log(
+                "Sender Participant:",
+                senderParticipant
+            );
+
+            console.log(
+                "Sender Admin:",
+                senderAdmin
+            );
+
+            console.log(
+                "==================================\n"
+            );
+
+            // ----------------------------------------------------
+            // SENDER ADMIN CHECK
+            // ----------------------------------------------------
             if (!senderAdmin && !isOwner) {
                 return sock.sendMessage(
                     jid,
-                    { text: "❌ *Group Admins only!*" },
+                    {
+                        text:
+                            "❌ *Group Admins only!*"
+                    },
                     { quoted: msg }
                 );
             }
 
             // ----------------------------------------------------
-            // SELECT NON-ADMINS
+            // SELECT MEMBERS
             // ----------------------------------------------------
             const targetMembers =
-                participants.filter(p => {
+                participants
+                    .filter((participant) => {
 
-                    const number =
-                        cleanNumber(p.id);
+                        const number =
+                            getNumber(
+                                participant?.id
+                            );
 
-                    // Never remove bot
-                    if (number === botNumber) {
-                        return false;
-                    }
+                        // Never remove bot.
+                        if (
+                            number === botNumber
+                        ) {
+                            return false;
+                        }
 
-                    // Never remove sender
-                    if (
-                        number === senderNumber &&
-                        !isOwner
-                    ) {
-                        return false;
-                    }
+                        // Never remove command sender
+                        // unless owner is deliberately using
+                        // owner privileges.
+                        if (
+                            number === senderNumber &&
+                            !isOwner
+                        ) {
+                            return false;
+                        }
 
-                    // Never remove admins
-                    if (isAdmin(p)) {
-                        return false;
-                    }
+                        // Never remove admins.
+                        if (
+                            isAdmin(participant)
+                        ) {
+                            return false;
+                        }
 
-                    return true;
+                        return true;
 
-                }).map(p => p.id);
+                    })
+                    .map(
+                        participant =>
+                            participant.id
+                    );
 
+            // ----------------------------------------------------
+            // NOTHING TO REMOVE
+            // ----------------------------------------------------
             if (!targetMembers.length) {
                 return sock.sendMessage(
                     jid,
@@ -420,58 +725,88 @@ module.exports = [
                 );
             }
 
+            // ----------------------------------------------------
+            // START MESSAGE
+            // ----------------------------------------------------
             await sock.sendMessage(
                 jid,
                 {
                     text:
-                        `⚠️ *KICKALL INITIATED!* ⚠️\n\n` +
-                        `👥 Members to remove: ${targetMembers.length}\n\n` +
-                        `🛡️ Admins and bot will be protected.`
+                        "⚠️ *KICKALL INITIATED!* ⚠️\n\n" +
+                        `👥 Members found: ${targetMembers.length}\n` +
+                        "🛡️ Admins will be protected.\n" +
+                        "🤖 Bot will be protected.\n\n" +
+                        "_Starting removal process..._"
                 },
                 { quoted: msg }
             );
 
             // ----------------------------------------------------
-            // REMOVE MEMBERS
+            // REMOVE MEMBERS ONE BY ONE
             // ----------------------------------------------------
             let success = 0;
             let failed = 0;
 
-            for (const target of targetMembers) {
+            for (
+                const targetJid of targetMembers
+            ) {
 
                 try {
 
+                    // Double safety check.
+                    if (
+                        getNumber(targetJid) ===
+                        botNumber
+                    ) {
+                        continue;
+                    }
+
                     await sock.groupParticipantsUpdate(
                         jid,
-                        [target],
+                        [targetJid],
                         "remove"
                     );
 
                     success++;
 
-                    await new Promise(
-                        resolve => setTimeout(resolve, 1500)
+                    console.log(
+                        `✅ Kickall removed: ${targetJid}`
                     );
 
-                } catch (err) {
+                    // Delay between removals.
+                    await new Promise(
+                        resolve =>
+                            setTimeout(
+                                resolve,
+                                1500
+                            )
+                    );
+
+                } catch (error) {
 
                     failed++;
 
                     console.error(
-                        "Kickall error:",
-                        target,
-                        err?.message || err
+                        `❌ Kickall failed for ${targetJid}:`,
+                        error?.message ||
+                        error
                     );
+
+                    // Continue with next member.
                 }
             }
 
+            // ----------------------------------------------------
+            // COMPLETED
+            // ----------------------------------------------------
             await sock.sendMessage(
                 jid,
                 {
                     text:
-                        `✅ *Kickall completed!*\n\n` +
+                        "✅ *Kickall process completed!*\n\n" +
                         `✔️ Removed: ${success}\n` +
-                        `❌ Failed: ${failed}`
+                        `❌ Failed: ${failed}\n` +
+                        `🛡️ Admins protected`
                 },
                 { quoted: msg }
             );

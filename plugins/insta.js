@@ -1,6 +1,8 @@
-// plugins/insta.js - KIRA X MD (Ultra Fast Promise.any Implementation without Kira API)
+// plugins/insta.js - KIRA X MD (8x Strong Retry System)
 
 const axios = require("axios");
+
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 module.exports = [
     {
@@ -42,29 +44,37 @@ module.exports = [
                     `https://api-aswin-sparky.koyeb.app/api/downloader/igdl?url=${encodeURIComponent(url)}`
                 ];
 
-                // 🚀 MEGA SPEED: Use Promise.any to fetch from the fastest API
-                const fetchApi = async (apiUrl) => {
-                    const res = await axios.get(apiUrl, { timeout: 15000, headers: { "User-Agent": "Mozilla/5.0" } });
-                    const data = res.data;
-                    
-                    let items = null;
-                    if (data?.data && Array.isArray(data.data) && data.data.length > 0) {
-                        items = data.data;
-                    } else if (data?.result && Array.isArray(data.result) && data.result.length > 0) {
-                        items = data.result;
-                    } else if (data?.urls && Array.isArray(data.urls) && data.urls.length > 0) {
-                        items = data.urls;
-                    }
-                    
-                    if (items) {
-                        return items;
-                    }
-                    throw new Error("Invalid response");
-                };
+                let items = null;
+                let success = false;
 
-                const items = await Promise.any(apis.map(api => fetchApi(api)));
+                // 🚀 8 RETRIES PER API LOGIC
+                for (const api of apis) {
+                    if (success) break;
 
-                if (!items) throw new Error("All APIs failed");
+                    for (let attempt = 1; attempt <= 8; attempt++) {
+                        try {
+                            const res = await axios.get(api, { timeout: 20000, headers: { "User-Agent": "Mozilla/5.0" } });
+                            const data = res.data;
+
+                            if (data?.data && Array.isArray(data.data) && data.data.length > 0) {
+                                items = data.data;
+                            } else if (data?.result && Array.isArray(data.result) && data.result.length > 0) {
+                                items = data.result;
+                            } else if (data?.urls && Array.isArray(data.urls) && data.urls.length > 0) {
+                                items = data.urls;
+                            }
+
+                            if (items) {
+                                success = true;
+                                break; // Break out of retry loop if success
+                            }
+                        } catch (e) {
+                            if (attempt < 8) await sleep(2000); // Wait 2s before retry
+                        }
+                    }
+                }
+
+                if (!items) throw new Error("All APIs failed after 8 retries");
 
                 // ─── SENDING MEDIA ───
                 for (const item of items) {
@@ -139,32 +149,39 @@ module.exports = [
                     `https://api-aswin-sparky.koyeb.app/api/downloader/snapchat?url=${encodeURIComponent(url)}` 
                 ];
 
-                 // 🚀 MEGA SPEED: Use Promise.any to fetch from the fastest API
-                const fetchSnapApi = async (apiUrl) => {
-                    const res = await axios.get(apiUrl, { timeout: 15000, headers: { "User-Agent": "Mozilla/5.0" } });
-                    const data = res.data;
-                    
-                    let mediaUrl = null;
-                    let captionText = "";
-                    
-                    if (data?.medias && data.medias.length > 0) {
-                        mediaUrl = data.medias[0].url;
-                        captionText = data.title || "";
-                    } else if (data?.data?.url) {
-                        mediaUrl = data.data.url;
-                    } else if (data?.url) {
-                        mediaUrl = data.url;
-                    }
-                    
-                    if (mediaUrl) {
-                        return { mediaUrl, captionText };
-                    }
-                    throw new Error("Invalid response");
-                };
-                
-                const { mediaUrl, captionText } = await Promise.any(apis.map(api => fetchSnapApi(api)));
+                let mediaUrl = null;
+                let captionText = "";
+                let success = false;
 
-                if (!mediaUrl) throw new Error("No media found");
+                // 🚀 8 RETRIES PER API LOGIC
+                for (const api of apis) {
+                    if (success) break;
+
+                    for (let attempt = 1; attempt <= 8; attempt++) {
+                        try {
+                            const res = await axios.get(api, { timeout: 20000, headers: { "User-Agent": "Mozilla/5.0" } });
+                            const data = res.data;
+
+                            if (data?.medias && data.medias.length > 0) {
+                                mediaUrl = data.medias[0].url;
+                                captionText = data.title || "";
+                            } else if (data?.data?.url) {
+                                mediaUrl = data.data.url;
+                            } else if (data?.url) {
+                                mediaUrl = data.url;
+                            }
+
+                            if (mediaUrl) {
+                                success = true;
+                                break; // Break out of retry loop if success
+                            }
+                        } catch (e) {
+                            if (attempt < 8) await sleep(2000); // Wait 2s before retry
+                        }
+                    }
+                }
+
+                if (!mediaUrl) throw new Error("No media found after 8 retries");
 
                 const mediaResponse = await axios.get(mediaUrl, { 
                     responseType: 'arraybuffer',
