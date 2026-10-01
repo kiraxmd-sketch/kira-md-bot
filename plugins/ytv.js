@@ -1,4 +1,4 @@
-// plugins/ytv.js - KIRA X MD (YouTube Video Downloader with 60MB limit check)
+// plugins/ytv.js - KIRA X MD (Multi-Resolution Auto Fallback YT Downloader)
 const axios = require("axios");
 
 // Sleep function for retries
@@ -8,7 +8,7 @@ module.exports = {
     name: "ytv",
     alias: ["yt", "video", "ytmp4" , "youtube"],
     category: "downloader",
-    description: "Download YouTube video (MP4)",
+    description: "Download YouTube video (Up to 1080p MP4)",
     usage: `${process.env.PREFIX || '.'}ytv <url> (or reply to a YouTube link)`,
 
     async execute(sock, msg, args) {
@@ -40,8 +40,12 @@ module.exports = {
         try {
             await sock.sendMessage(jid, { react: { text: "⏳", key: msg.key } });
 
-            // ─── APIs (Fastest APIs Priority) ───
+            // ─── APIs (1080p -> 720p -> 480p -> 360p Fallbacks) ───
             const apis = [
+                `https://api.nexray.eu.cc/downloader/v1/ytmp4?url=${encodeURIComponent(url)}&resolusi=1080`,
+                `https://api.nexray.eu.cc/downloader/v1/ytmp4?url=${encodeURIComponent(url)}&resolusi=720`,
+                `https://api.nexray.eu.cc/downloader/v1/ytmp4?url=${encodeURIComponent(url)}&resolusi=480`,
+                `https://api.nexray.eu.cc/downloader/v1/ytmp4?url=${encodeURIComponent(url)}&resolusi=360`,
                 `https://eliteprotech-apis.zone.id/download/ytmp4?url=${encodeURIComponent(url)}`,
                 `https://jerrycoder.oggyapi.workers.dev/down/ytmp4?url=${encodeURIComponent(url)}`,
                 `https://jerrycoder.oggyapi.workers.dev/down/ytmp4-v1?url=${encodeURIComponent(url)}`,
@@ -55,10 +59,10 @@ module.exports = {
             for (const api of apis) {
                 if (success) break;
 
-                // 3x RETRY LOGIC
-                for (let attempt = 1; attempt <= 3; attempt++) {
+                // 2x RETRY LOGIC (25s Timeout for faster failover to next resolution)
+                for (let attempt = 1; attempt <= 2; attempt++) {
                     try {
-                        const { data } = await axios.get(api, { timeout: 15000 });
+                        const { data } = await axios.get(api, { timeout: 25000, headers: { "User-Agent": "Mozilla/5.0" } });
                         
                         const candidateVideoUrl =
                             data?.result?.url ||
@@ -75,7 +79,7 @@ module.exports = {
                             break; // Exit attempt loop on success
                         }
                     } catch (e) {
-                        if (attempt < 3) await sleep(2000); 
+                        if (attempt < 2) await sleep(1500); 
                     }
                 }
             }
@@ -85,7 +89,7 @@ module.exports = {
             // ─── Check File Size ───
             let isDocument = false;
             try {
-                const headerRes = await axios.head(videoUrl, { timeout: 10000 });
+                const headerRes = await axios.head(videoUrl, { timeout: 15000 });
                 const contentLength = headerRes.headers['content-length'];
                 
                 if (contentLength) {
@@ -96,7 +100,7 @@ module.exports = {
                     }
                 }
             } catch (headErr) {
-                // If HEAD fails, assume normal size and proceed, WhatsApp will reject if it's too big anyway
+                // Ignore HEAD error
             }
 
             // ─── Send Video or Document ───
@@ -120,10 +124,10 @@ module.exports = {
             console.error("YTV Error:", err.message);
             
             await sock.sendMessage(jid, {
-                text: `❌ _Something went wrong, please try again later._`
+                text: `❌ _Something went wrong or the video is too large, please try again later._`
             }, { quoted: msg });
             
             await sock.sendMessage(jid, { react: { text: "❌", key: msg.key } });
         }
     }
-}; 
+};

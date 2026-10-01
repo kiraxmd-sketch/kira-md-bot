@@ -2,7 +2,7 @@ const axios = require('axios');
 
 module.exports = {
     name: "kiss",
-    alias: [ "slap", "pat"],
+    alias: [ "pat"],
     category: "anime",
     description: "Send anime reaction images",
     usage: ".kiss <tag someone>",

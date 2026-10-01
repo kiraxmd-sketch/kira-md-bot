@@ -22,6 +22,7 @@ const { getSettings } = require("./lib/database");
 // ============================================================
 // DYNAMIC CONFIG HELPERS & RESET FUNCTION
 // ============================================================
+
 function getBotName(sock) {
     try {
         const currentSock = sock || activeSocket;
@@ -89,7 +90,9 @@ function recordBotUser(sender) {
     const cleanNum = sender.split("@")[0].replace(/[^0-9]/g, "");
     if (cleanNum && !global.totalBotUsers.has(cleanNum)) {
         global.totalBotUsers.add(cleanNum);
-        try { fs.writeFileSync(usersFile, JSON.stringify([...global.totalBotUsers])); } catch (e) {}
+        try {
+            fs.writeFileSync(usersFile, JSON.stringify([...global.totalBotUsers]));
+        } catch (e) {}
     }
 }
 
@@ -151,30 +154,98 @@ function isGroupJid(jid) { return typeof jid === "string" && jid.endsWith("@g.us
 function isOldMessage(msg) { if (!msg.messageTimestamp) return false; const timestamp = Number(msg.messageTimestamp); if (!timestamp) return false; const now = Math.floor(Date.now() / 1000); return now - timestamp > 60; }
 
 // ============================================================
-// SUDO & OWNER CHECK
+// SUDO & OWNER CHECK (Old Stable Logic)
 // ============================================================
 const sudoFile = path.join(process.cwd(), "sudo.json");
 let sudoCache = [];
 let sudoMtime = 0;
-function loadDynamicSudo() { try { if (!fs.existsSync(sudoFile)) { sudoCache = []; sudoMtime = 0; return; } const stat = fs.statSync(sudoFile); if (stat.mtimeMs === sudoMtime) { return; } const data = JSON.parse( fs.readFileSync(sudoFile, "utf8") ); sudoCache = Array.isArray(data) ? data.map((x) => normalizeJid(x)).filter(Boolean) : []; sudoMtime = stat.mtimeMs; } catch (err) { sudoCache = []; } }
+
+function loadDynamicSudo() { 
+    try { 
+        if (!fs.existsSync(sudoFile)) { 
+            sudoCache = []; sudoMtime = 0; return; 
+        } 
+        const stat = fs.statSync(sudoFile); 
+        if (stat.mtimeMs === sudoMtime) { return; } 
+        const data = JSON.parse( fs.readFileSync(sudoFile, "utf8") ); 
+        sudoCache = Array.isArray(data) ? data.map((x) => normalizeJid(x)).filter(Boolean) : []; 
+        sudoMtime = stat.mtimeMs; 
+    } catch (err) { 
+        sudoCache = []; 
+    } 
+}
 loadDynamicSudo();
-function isSudo(sender) { loadDynamicSudo(); return ( global.sudoUsers.includes(sender) || sudoCache.includes(sender) ); }
-function isBotOwner(sender, botNumber, msg) { if (msg.key?.fromMe) return true; const owner = normalizeJid(global.ownerNumber); const bot = normalizeJid(`${botNumber}@s.whatsapp.net`); return ( sender === owner || sender === bot ); }
-function findCommand(commandName) { const exact = commands.find((cmd) => String(cmd.name).toLowerCase() === commandName); if (exact) return exact; return commands.find((cmd) => Array.isArray(cmd.alias) && cmd.alias.some((alias) => String(alias).toLowerCase() === commandName)); }
+
+function isSudo(sender) { 
+    loadDynamicSudo(); 
+    return ( global.sudoUsers.includes(sender) || sudoCache.includes(sender) ); 
+}
+
+function isBotOwner(sender, botNumber, msg) { 
+    if (msg.key?.fromMe) return true; 
+    const owner = normalizeJid(global.ownerNumber); 
+    const bot = normalizeJid(`${botNumber}@s.whatsapp.net`); 
+    return ( sender === owner || sender === bot ); 
+}
+
+function findCommand(commandName) { 
+    const exact = commands.find((cmd) => String(cmd.name).toLowerCase() === commandName); 
+    if (exact) return exact; 
+    return commands.find((cmd) => Array.isArray(cmd.alias) && cmd.alias.some((alias) => String(alias).toLowerCase() === commandName)); 
+}
 
 // ============================================================
 // MESSAGE STORE CLEANER
 // ============================================================
-setInterval(() => { try { const now = Date.now(); const MAX_AGE = 60 * 60 * 1000; for (const [id, message] of Object.entries(global.messageStore)) { const timestamp = Number(message.messageTimestamp || 0) * 1000; if (timestamp && now - timestamp > MAX_AGE) { delete global.messageStore[id]; } } } catch (err) {} }, 10 * 60 * 1000);
+setInterval(() => { 
+    try { 
+        const now = Date.now(); 
+        const MAX_AGE = 60 * 60 * 1000; 
+        for (const [id, message] of Object.entries(global.messageStore)) { 
+            const timestamp = Number(message.messageTimestamp || 0) * 1000; 
+            if (timestamp && now - timestamp > MAX_AGE) { delete global.messageStore[id]; } 
+        } 
+    } catch (err) {} 
+}, 10 * 60 * 1000);
 
 // ============================================================
 // SESSION PREPARATION
 // ============================================================
 function prepareSession() {
-    const sessionDir = "./session"; const credsPath = path.join(sessionDir, "creds.json");
+    const sessionDir = "./session"; 
+    const credsPath = path.join(sessionDir, "creds.json");
+    
     if (!fs.existsSync(sessionDir)) { fs.mkdirSync(sessionDir, { recursive: true }); }
-    if (process.env.SESSION_ID && !fs.existsSync(credsPath)) { try { let sessionId = process.env.SESSION_ID.trim(); if (sessionId.startsWith("KIRA~")) { sessionId = sessionId.slice(5); } const decoded = Buffer.from(sessionId, "base64").toString(); fs.writeFileSync(credsPath, decoded); console.log("✅ SESSION_ID loaded successfully"); } catch (err) {} }
-    if (fs.existsSync(credsPath) && process.env.BOT_NUMBER) { try { const creds = JSON.parse(fs.readFileSync(credsPath, "utf8")); const savedNumber = creds?.me?.id?.split(":")[0]?.replace(/[^0-9]/g, ""); const envNumber = process.env.BOT_NUMBER.replace(/[^0-9]/g, ""); if (savedNumber && envNumber && savedNumber !== envNumber) { console.log(`⚠️ Session number changed: ${savedNumber} -> ${envNumber}`); fs.rmSync(sessionDir, { recursive: true, force: true }); resetEnvToDefault(); fs.mkdirSync(sessionDir, { recursive: true }); if (process.env.SESSION_ID) { let sessionId = process.env.SESSION_ID.trim(); if (sessionId.startsWith("KIRA~")) { sessionId = sessionId.slice(5); } fs.writeFileSync(credsPath, Buffer.from(sessionId, "base64").toString()); } } } catch (err) {} }
+    
+    if (process.env.SESSION_ID && !fs.existsSync(credsPath)) { 
+        try { 
+            let sessionId = process.env.SESSION_ID.trim(); 
+            if (sessionId.startsWith("KIRA~")) { sessionId = sessionId.slice(5); } 
+            const decoded = Buffer.from(sessionId, "base64").toString(); 
+            fs.writeFileSync(credsPath, decoded); 
+            console.log("✅ SESSION_ID loaded successfully"); 
+        } catch (err) {} 
+    }
+    
+    if (fs.existsSync(credsPath) && process.env.BOT_NUMBER) { 
+        try { 
+            const creds = JSON.parse(fs.readFileSync(credsPath, "utf8")); 
+            const savedNumber = creds?.me?.id?.split(":")[0]?.replace(/[^0-9]/g, ""); 
+            const envNumber = process.env.BOT_NUMBER.replace(/[^0-9]/g, ""); 
+            
+            if (savedNumber && envNumber && savedNumber !== envNumber) { 
+                console.log(`⚠️ Session number changed: ${savedNumber} -> ${envNumber}`); 
+                fs.rmSync(sessionDir, { recursive: true, force: true }); 
+                resetEnvToDefault(); 
+                fs.mkdirSync(sessionDir, { recursive: true }); 
+                if (process.env.SESSION_ID) { 
+                    let sessionId = process.env.SESSION_ID.trim(); 
+                    if (sessionId.startsWith("KIRA~")) { sessionId = sessionId.slice(5); } 
+                    fs.writeFileSync(credsPath, Buffer.from(sessionId, "base64").toString()); 
+                } 
+            } 
+        } catch (err) {} 
+    }
 }
 
 // ============================================================
@@ -202,7 +273,10 @@ async function startKira() {
             browser: Browsers.macOS("Chrome"),
             markOnlineOnConnect: false,
             generateHighQualityLinkPreview: false,
-            getMessage: async (key) => { try { return (global.messageStore[key.id]?.message || { conversation: "" }); } catch { return { conversation: "" }; } }
+            getMessage: async (key) => { 
+                try { return (global.messageStore[key.id]?.message || { conversation: "" }); } 
+                catch { return { conversation: "" }; } 
+            }
         });
 
         activeSocket = sock; starting = false;
@@ -259,7 +333,10 @@ async function startKira() {
                         global.kiraStartupDone = true;
                         setTimeout(async () => {
                             try { const invite = process.env.AUTO_JOIN_GROUP; if (invite) { await sock.groupAcceptInvite(invite); } } catch (err) {}
-                            try { const owner = normalizeJid(global.ownerNumber); if (owner) { await sock.sendMessage(owner, { text: `╭━━━〔 KIRA X MD 〕━━━⬣\n\n✅ *Connected Successfully*\n🛡️ *Status:* Active\n🤖 *Bot:* KIRA X MD\n\n╰━━━━━━━━━━━━━━⬣` }); } } catch (err) {}
+                            try { 
+                                const owner = normalizeJid(global.ownerNumber); 
+                                if (owner) { await sock.sendMessage(owner, { text: `╭━━━〔 KIRA X MD 〕━━━⬣\n\n✅ *Connected Successfully*\n🛡️ *Status:* Active\n🤖 *Bot:* KIRA X MD\n\n╰━━━━━━━━━━━━━━⬣` }); } 
+                            } catch (err) {}
                         }, 2000);
                     }
                 }
@@ -268,7 +345,11 @@ async function startKira() {
                     const statusCode = lastDisconnect?.error?.output?.statusCode;
                     const loggedOut = statusCode === DisconnectReason.loggedOut || statusCode === 401 || statusCode === 403;
                     console.log("⚠️ Connection closed:", statusCode);
-                    if (loggedOut) { console.log("❌ WhatsApp session logged out."); try { fs.rmSync("./session", { recursive: true, force: true }); resetEnvToDefault(); } catch {} process.exit(1); }
+                    if (loggedOut) { 
+                        console.log("❌ WhatsApp session logged out."); 
+                        try { fs.rmSync("./session", { recursive: true, force: true }); resetEnvToDefault(); } catch {} 
+                        process.exit(1); 
+                    }
                     if (reconnectTimer) return;
                     reconnectTimer = setTimeout(async () => { reconnectTimer = null; try { await startKira(); } catch (err) {} }, 3000);
                 }
@@ -278,7 +359,19 @@ async function startKira() {
         sock.ev.on("creds.update", saveCreds);
 
         sock.ev.on("call", async (calls) => {
-            try { const botNumber = getBotNumber(sock); if (!botNumber) return; const config = getSettings(botNumber); if (!config.callReject) return; for (const call of calls) { if (call.status === "offer") { try { await sock.rejectCall(call.id, call.from); } catch {} try { await sock.sendMessage(call.from, { text: "📵 *Calls are not allowed.*\nPlease send a message instead." }); } catch {} } } } catch (err) {}
+            try { 
+                const botNumber = getBotNumber(sock); 
+                if (!botNumber) return; 
+                const config = getSettings(botNumber); 
+                if (!config.callReject) return; 
+                
+                for (const call of calls) { 
+                    if (call.status === "offer") { 
+                        try { await sock.rejectCall(call.id, call.from); } catch {} 
+                        try { await sock.sendMessage(call.from, { text: "📵 *Calls are not allowed.*\nPlease send a message instead." }); } catch {} 
+                    } 
+                } 
+            } catch (err) {}
         });
 
         const processedDeletes = new Set();
@@ -363,19 +456,20 @@ async function startKira() {
                     
                     const isGroup = isGroupJid(jid); 
                     const sender = getSender(msg, sock); 
+                    
+                    // Sudo / Owner Permissions
                     const isOwner = isBotOwner(sender, botNumber, msg); 
                     const sudo = isSudo(sender); 
                     const isOwnerOrSudo = isOwner || sudo; 
+                    
                     const text = getMessageText(msg);
 
-                    // 🚫 BAN SYSTEM LOGIC
-                    if (!isOwnerOrSudo) {
-                        if (Array.isArray(config.bannedUsers) && config.bannedUsers.includes(sender)) continue;
-                        if (isGroup && Array.isArray(config.bannedGroups) && config.bannedGroups.includes(jid)) continue;
-                        if (!isGroup && Array.isArray(config.bannedUsers) && config.bannedUsers.includes(jid)) continue;
+                    // 🎯 REAL USER REGISTRATION
+                    if (!msg.key.fromMe && sender) {
+                        recordBotUser(sender);
                     }
 
-                    // 🔥 AUTO TYPING & AUTO RECORDING PRESENCE
+                    // 🔥 AUTO TYPING & AUTO RECORDING PRESENCE 🔥
                     if (!msg.key.fromMe) {
                         if (config.autoTyping) {
                             await sock.sendPresenceUpdate('composing', jid).catch(() => {});
@@ -389,14 +483,26 @@ async function startKira() {
                     const msgContent = msg.message.ephemeralMessage?.message || msg.message.viewOnceMessage?.message || msg.message.viewOnceMessageV2?.message || msg.message.documentWithCaptionMessage?.message || msg.message;
                     const hasMedia = msgContent.imageMessage || msgContent.videoMessage || msgContent.stickerMessage || msgContent.documentMessage || msgContent.audioMessage || msgContent.contactMessage;
                     
-                    // 🔥 EMPTY MESSAGE LOG ADDED HERE
+                    // 🔥 EMPTY MESSAGE LOG FIX 🔥
+                    const isLid = jid.includes('@lid');
+                    const isSystemMsg = msg.message?.editedMessage || msg.message?.protocolMessage || msg.message?.senderKeyDistributionMessage;
+
                     if (!cleanText && !hasMedia) {
-                        console.log("\n⚠️ --- EMPTY/UNKNOWN MESSAGE DETECTED ---");
-                        console.log("➤ Sender :", sender);
-                        console.log("➤ Chat   :", jid);
-                        console.log("➤ Content:", JSON.stringify(msg, null, 2));
-                        console.log("------------------------------------------\n");
+                        if (!msg.key.fromMe && !isLid && !isSystemMsg) {
+                            console.log("\n⚠️ --- EMPTY/UNKNOWN MESSAGE DETECTED ---");
+                            console.log("➤ Sender :", sender);
+                            console.log("➤ Chat   :", jid);
+                            console.log("➤ Content:", JSON.stringify(msg, null, 2));
+                            console.log("------------------------------------------\n");
+                        }
                         continue; 
+                    }
+
+                    // 🚫 BAN SYSTEM LOGIC
+                    if (!isOwnerOrSudo) {
+                        if (Array.isArray(config.bannedUsers) && config.bannedUsers.includes(sender)) continue;
+                        if (isGroup && Array.isArray(config.bannedGroups) && config.bannedGroups.includes(jid)) continue;
+                        if (!isGroup && Array.isArray(config.bannedUsers) && config.bannedUsers.includes(jid)) continue;
                     }
 
                     global.msgRateLimit = global.msgRateLimit || {};
@@ -424,8 +530,10 @@ async function startKira() {
                                 const realSender = msg.key.participant || msg.participant || sender; 
                                 const member = metadata.participants.find((p) => p.id === realSender || p.id === sender || p.id?.split("@")[0] === sender.split("@")[0]); 
                                 const isAdmin = member?.admin === "admin" || member?.admin === "superadmin"; 
+                                
                                 if (!isAdmin) { 
                                     const mode = config.antilinkMode?.[jid] || "delete"; 
+                                    try { await sock.sendMessage(jid, { delete: msg.key }); } catch {} 
                                     
                                     if (mode === "warn") { 
                                         await sock.sendMessage(jid, { text: `⚠️ *@${sender.split("@")[0]}*, WhatsApp group links are not allowed here.`, mentions: [sender] }); 
@@ -433,8 +541,6 @@ async function startKira() {
                                         await sock.sendMessage(jid, { text: `🚫 *@${sender.split("@")[0]}* sent a group link. Removing...`, mentions: [sender] }); 
                                         setTimeout(async () => { try { await sock.groupParticipantsUpdate(jid, [member?.id || realSender], "remove"); } catch {} }, 1000); 
                                     } 
-                                    
-                                    try { await sock.sendMessage(jid, { delete: msg.key }); } catch {} 
                                     continue; 
                                 } 
                             } catch (err) {} 
@@ -454,6 +560,7 @@ async function startKira() {
                                 
                                 if (!isAdmin) {
                                     const mode = config.antiStatusMode?.[jid] || "delete"; 
+                                    try { await sock.sendMessage(jid, { delete: msg.key }); } catch {} 
                                     
                                     if (mode === "warn") { 
                                         await sock.sendMessage(jid, { text: `⚠️ *@${sender.split("@")[0]}*, Replying to or forwarding WhatsApp Status is not allowed here.`, mentions: [sender] }); 
@@ -461,8 +568,6 @@ async function startKira() {
                                         await sock.sendMessage(jid, { text: `🚫 *@${sender.split("@")[0]}* forwarded a Status. Removing...`, mentions: [sender] }); 
                                         setTimeout(async () => { try { await sock.groupParticipantsUpdate(jid, [member?.id || realSender], "remove"); } catch {} }, 1000); 
                                     } 
-                                    
-                                    try { await sock.sendMessage(jid, { delete: msg.key }); } catch {} 
                                     continue; 
                                 }
                             } catch (err) {}
@@ -471,7 +576,13 @@ async function startKira() {
                     
                     const autoDlEnabled = config.autoDlChats?.includes(jid) || (config.autoDlAllGroups && isGroup) || (config.autoDlAllDms && !isGroup);
                     
-                    if (autoDlEnabled && text && !text.startsWith(prefix)) { try { if (/instagram\.com/i.test(text)) { const insta = findCommand("insta"); if (insta) { await insta.execute(sock, msg, [text], isOwnerOrSudo); } continue; } if (/facebook\.com|fb\.watch|fb\.gg/i.test(text)) { const fb = findCommand("fb"); if (fb) { await fb.execute(sock, msg, [text], isOwnerOrSudo); } continue; } if (/youtube\.com|youtu\.be/i.test(text)) { const ytv = findCommand("ytv"); if (ytv) { await ytv.execute(sock, msg, [text], isOwnerOrSudo); } continue; } } catch (err) {} }
+                    if (autoDlEnabled && text && !text.startsWith(prefix)) { 
+                        try { 
+                            if (/instagram\.com/i.test(text)) { const insta = findCommand("insta"); if (insta) { await insta.execute(sock, msg, [text], isOwnerOrSudo); } continue; } 
+                            if (/facebook\.com|fb\.watch|fb\.gg/i.test(text)) { const fb = findCommand("fb"); if (fb) { await fb.execute(sock, msg, [text], isOwnerOrSudo); } continue; } 
+                            if (/youtube\.com|youtu\.be/i.test(text)) { const ytv = findCommand("ytv"); if (ytv) { await ytv.execute(sock, msg, [text], isOwnerOrSudo); } continue; } 
+                        } catch (err) {} 
+                    }
 
                     // 🔥 FIX FOR NUMBER REPLY 
                     const quotedMsg = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
@@ -498,11 +609,6 @@ async function startKira() {
                     
                     const commandName = String(args.shift() || "").toLowerCase(); 
                     if (!commandName) continue;
-
-                    // 🎯 REAL USER REGISTRATION 
-                    if (!msg.key.fromMe && sender) {
-                        recordBotUser(sender);
-                    }
                     
                     if (commandName === "me") { 
                         if (!isOwnerOrSudo) { await sock.sendMessage(jid, { text: "❌ *Owner only!*" }, { quoted: msg }); continue; } 
@@ -533,7 +639,7 @@ async function startKira() {
 
                     const command = findCommand(commandName); 
 
-                    // 🔥 Number Reply Fix 
+                    // 🔥 Number Reply Command Match
                     if (!command && isNumberReplyWithQuote && parsedNumber) {
                         const numberCommandMatch = commands.find((cmd) => Array.isArray(cmd.alias) && cmd.alias.some((alias) => String(alias).toLowerCase() === parsedNumber));
                         
@@ -561,6 +667,7 @@ async function startKira() {
                         await command.execute(sock, msg, args, isOwnerOrSudo); 
                     } catch (cmdErr) { 
                         console.error(`❌ Command "${command.name}" error:`, cmdErr); 
+                        try { await sock.sendMessage(jid, { text: "❌ *Something went wrong while executing this command.*" }, { quoted: msg }); } catch {}
                     }
                 }
             } catch (err) { console.error("❌ Message handler error:", err); }
