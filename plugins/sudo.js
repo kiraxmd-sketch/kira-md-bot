@@ -1,10 +1,9 @@
-// plugins/sudo.js - KIRA X MD (Sudo Management Fix)
+// plugins/sudo.js - KIRA X MD
 const fs = require('fs');
 const path = require('path');
 
 const sudoFile = path.join(process.cwd(), 'sudo.json');
 
-// 🔥 Helper to strictly format JID
 function formatJid(rawJid) {
     if (!rawJid) return null;
     const num = rawJid.split('@')[0].replace(/[^0-9]/g, '');
@@ -17,7 +16,6 @@ const getSudo = () => {
 };
 
 module.exports = [
-    // ─── 1. ADD SUDO ───
     {
         name: 'addsudo',
         category: 'owner',
@@ -26,10 +24,8 @@ module.exports = [
         async execute(sock, msg, args, isOwner) {
             const jid = msg.key.remoteJid;
             
-            // Only Main Owner
             if (!isOwner) return await sock.sendMessage(jid, { text: '❌ *This command is for the Owner only!*' }, { quoted: msg });
 
-            // Extract Target
             let rawTarget = msg.message?.extendedTextMessage?.contextInfo?.participant;
             if (!rawTarget && args[0]) {
                 const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid;
@@ -51,8 +47,6 @@ module.exports = [
             await sock.sendMessage(jid, { text: `✅ *Successfully added @${target.split('@')[0]} to Sudo List!*\n_They can now use owner commands._`, mentions: [target] }, { quoted: msg });
         }
     },
-
-    // ─── 2. DEL SUDO ───
     {
         name: 'delsudo',
         category: 'owner',
@@ -83,8 +77,6 @@ module.exports = [
             await sock.sendMessage(jid, { text: `✅ *Successfully removed @${target.split('@')[0]} from Sudo List!*`, mentions: [target] }, { quoted: msg });
         }
     },
-
-    // ─── 3. SUDO LIST ───
     {
         name: 'sudolist',
         category: 'owner',
