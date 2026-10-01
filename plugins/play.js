@@ -1,7 +1,9 @@
-// plugins/play.js – KIRA X MD (Ultra Fast Promise.any Audio Downloader)
+// plugins/play.js – KIRA X MD (Ultra Fast Stable Audio Downloader)
 const ytSearch = require('yt-search');
 const axios = require('axios');
 const { getSettings } = require('../lib/database');
+
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 module.exports = {
     name: 'play',
@@ -57,7 +59,7 @@ module.exports = {
                     const info = await ytSearch({ videoId: youtubeId });
                     if (info) songInfo = info;
                 } catch {}
-                if (!songInfo) songInfo = { title: query, author: { name: ownerName } };
+                if (!songInfo) songInfo = { title: "YouTube Audio", author: { name: ownerName } };
             }
 
             let title = songInfo?.title || "Unknown Song";
@@ -79,26 +81,35 @@ module.exports = {
                 `https://jerrycoder.oggyapi.workers.dev/down/ytmp3?url=${encodeURIComponent(url)}`
             ];
 
-            // 🚀 MEGA SPEED: Promise.any Implementation
-            const fetchAudioApi = async (apiUrl) => {
-                const res = await axios.get(apiUrl, { timeout: 10000, headers: { "User-Agent": "Mozilla/5.0" } });
-                const data = res.data;
-                const candidate = data?.result?.mp3 || data?.result?.url || data?.data?.dl || data?.data?.download || data?.download || data?.url || (typeof data?.result === "string" ? data.result : null) || (typeof data === "string" ? data : null);
+            let audioBuffer = null;
 
-                if (candidate && typeof candidate === "string" && candidate.startsWith("http")) {
-                    // Try to fetch buffer immediately to confirm it's valid
-                    const audioResponse = await axios.get(candidate, { responseType: "arraybuffer", timeout: 15000 });
-                    if (audioResponse.status === 200 && audioResponse.data) {
-                         return Buffer.from(audioResponse.data);
+            // 🚀 FAST & STABLE: Sequential API Check with Retries
+            for (const api of apis) {
+                if (audioBuffer) break;
+
+                for (let attempt = 1; attempt <= 3; attempt++) {
+                    try {
+                        const res = await axios.get(api, { timeout: 15000, headers: { "User-Agent": "Mozilla/5.0" } });
+                        const data = res.data;
+                        
+                        const candidate = data?.result?.mp3 || data?.result?.url || data?.data?.dl || data?.data?.download || data?.download || data?.url || (typeof data?.result === "string" ? data.result : null) || (typeof data === "string" ? data : null);
+
+                        if (candidate && typeof candidate === "string" && candidate.startsWith("http")) {
+                            // Valid URL found, fetch buffer
+                            const audioResponse = await axios.get(candidate, { responseType: "arraybuffer", timeout: 20000 });
+                            if (audioResponse.status === 200 && audioResponse.data) {
+                                audioBuffer = Buffer.from(audioResponse.data);
+                                break; // Success! Break out of retry loop
+                            }
+                        }
+                    } catch (e) {
+                        if (attempt < 3) await sleep(1000); // 1-second delay before retry
                     }
                 }
-                throw new Error("Invalid response");
-            };
-            
-            const audioBuffer = await Promise.any(apis.map(api => fetchAudioApi(api)));
+            }
 
             if (!audioBuffer) {
-                throw new Error("All servers are temporarily blocked by YouTube. Please try again later.");
+                throw new Error("All servers failed to download. Please try again later.");
             }
 
             // ─────────────────────────────────────

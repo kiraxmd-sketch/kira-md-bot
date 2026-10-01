@@ -75,7 +75,7 @@
 <div align="left">
 
 1. **Deploy the Bot:** Deploy the repository to your preferred platform (Panel, Railway, Render, Replit, etc.).
-2. **Set Environment Variable:** In your deployment platform's Environment Variables (or `.env` file), add a new variable named `BOT_NUMBER` and enter your WhatsApp number with the country code (e.g., `919876543210`).
+2. **Set Environment Variable:** In your deployment platform's Environment Variables (or `.env` file), add a new variable named `BOT_NUMBER` and enter your WhatsApp number without the country code (e.g., `919876543210`).
 3. **Start the Bot:** Run or Start your server/panel.
 4. **Get the Code:** Check the console/terminal logs. The bot will automatically generate and display an 8-digit **Pairing Code**.
 5. **Link to WhatsApp:** Open your WhatsApp ➔ Tap the 3 dots (Options) ➔ `Linked Devices` ➔ `Link a Device` ➔ `Link with phone number instead` ➔ Enter the 8-digit code.
