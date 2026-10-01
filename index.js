@@ -98,6 +98,8 @@ function recordBotUser(sender) {
 
 const mainOwnerPhone = process.env.OWNER_NUMBER || process.env.BOT_NUMBER || "";
 global.ownerNumber = mainOwnerPhone.replace(/[^0-9]/g, "") + "@s.whatsapp.net";
+
+// 🔥 SUDO USERS INITIATION FIX
 global.sudoUsers = process.env.SUDO_NUMBERS ? process.env.SUDO_NUMBERS.split(",").map((x) => x.trim()).filter(Boolean).map((x) => x.replace(/[^0-9]/g, "") + "@s.whatsapp.net") : [];
 
 global.api = {
@@ -126,7 +128,12 @@ http.createServer((req, res) => { res.writeHead(200, { "Content-Type": "text/pla
 // HELPERS
 // ============================================================
 function getBotNumber(sock) { try { return (sock.user?.id?.split(":")[0]?.replace(/[^0-9]/g, "") || ""); } catch { return ""; } }
-function normalizeJid(jid) { if (!jid) return ""; const number = jid.split(":")[0].split("@")[0].replace(/[^0-9]/g, ""); return number ? `${number}@s.whatsapp.net` : jid; }
+// 🔥 Normalize JID (Removes Linked Device tags properly)
+function normalizeJid(jid) { 
+    if (!jid) return ""; 
+    const number = jid.split(":")[0].split("@")[0].replace(/[^0-9]/g, ""); 
+    return number ? `${number}@s.whatsapp.net` : jid; 
+}
 function getSender(msg, sock) { if (msg.key?.fromMe) { return normalizeJid(sock.user?.id); } const raw = msg.key?.participant || msg.participant || msg.key?.remoteJid; return normalizeJid(raw); }
 
 // 🔥 Empty Message Fix
@@ -154,38 +161,36 @@ function isGroupJid(jid) { return typeof jid === "string" && jid.endsWith("@g.us
 function isOldMessage(msg) { if (!msg.messageTimestamp) return false; const timestamp = Number(msg.messageTimestamp); if (!timestamp) return false; const now = Math.floor(Date.now() / 1000); return now - timestamp > 60; }
 
 // ============================================================
-// SUDO & OWNER CHECK (Old Stable Logic)
+// 🔥 SUDO & OWNER CHECK (FIXED) 🔥
 // ============================================================
 const sudoFile = path.join(process.cwd(), "sudo.json");
-let sudoCache = [];
-let sudoMtime = 0;
 
-function loadDynamicSudo() { 
-    try { 
-        if (!fs.existsSync(sudoFile)) { 
-            sudoCache = []; sudoMtime = 0; return; 
-        } 
-        const stat = fs.statSync(sudoFile); 
-        if (stat.mtimeMs === sudoMtime) { return; } 
-        const data = JSON.parse( fs.readFileSync(sudoFile, "utf8") ); 
-        sudoCache = Array.isArray(data) ? data.map((x) => normalizeJid(x)).filter(Boolean) : []; 
-        sudoMtime = stat.mtimeMs; 
-    } catch (err) { 
-        sudoCache = []; 
-    } 
+// ലൈവ് ആയിട്ട് സ്യൂഡോ ചെക്ക് ചെയ്യാൻ ഇത് സഹായിക്കും
+function getDynamicSudoList() {
+    try {
+        if (!fs.existsSync(sudoFile)) {
+            fs.writeFileSync(sudoFile, JSON.stringify([]));
+            return [];
+        }
+        const data = JSON.parse(fs.readFileSync(sudoFile, "utf8"));
+        return Array.isArray(data) ? data.map(x => normalizeJid(x)) : [];
+    } catch (err) {
+        return [];
+    }
 }
-loadDynamicSudo();
 
 function isSudo(sender) { 
-    loadDynamicSudo(); 
-    return ( global.sudoUsers.includes(sender) || sudoCache.includes(sender) ); 
+    const cleanSender = normalizeJid(sender);
+    const dynamicSudo = getDynamicSudoList();
+    return ( global.sudoUsers.includes(cleanSender) || dynamicSudo.includes(cleanSender) ); 
 }
 
 function isBotOwner(sender, botNumber, msg) { 
     if (msg.key?.fromMe) return true; 
+    const cleanSender = normalizeJid(sender);
     const owner = normalizeJid(global.ownerNumber); 
     const bot = normalizeJid(`${botNumber}@s.whatsapp.net`); 
-    return ( sender === owner || sender === bot ); 
+    return ( cleanSender === owner || cleanSender === bot ); 
 }
 
 function findCommand(commandName) { 
@@ -457,7 +462,7 @@ async function startKira() {
                     const isGroup = isGroupJid(jid); 
                     const sender = getSender(msg, sock); 
                     
-                    // Sudo / Owner Permissions
+                    // 🔥 SUDO & OWNER PERMISSIONS 🔥
                     const isOwner = isBotOwner(sender, botNumber, msg); 
                     const sudo = isSudo(sender); 
                     const isOwnerOrSudo = isOwner || sudo; 

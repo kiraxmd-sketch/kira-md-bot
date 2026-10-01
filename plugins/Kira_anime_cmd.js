@@ -1,180 +1,761 @@
 // plugins/Kira_anime_cmd.js - KIRA X MD (Anime Reaction & Maker Commands)
 const axios = require('axios');
 
-// ─── HELPER: SMART API URL FETCHER ───
-async function fetchAnimeUrl(type) {
-    const apiUrl = `https://api.nexray.eu.cc/random/anime?type=${type}`;
-    for (let i = 1; i <= 2; i++) {
-        try {
-            const res = await axios.get(apiUrl, { timeout: 10000, headers: { "User-Agent": "Mozilla/5.0" } });
-            const data = res.data;
-
-            // Smart extraction for different possible JSON structures
-            const mediaUrl = 
-                data?.result || 
-                data?.url || 
-                data?.data?.url || 
-                data?.data || 
-                (typeof data === 'string' ? data : null);
-
-            if (mediaUrl && typeof mediaUrl === 'string' && mediaUrl.startsWith('http')) {
-                return mediaUrl;
-            }
-        } catch (err) {
-            if (i === 2) throw new Error("API failed to return valid URL");
-        }
-    }
-    throw new Error("No media URL found");
-}
-
-// ─── HELPER: DOWNLOAD BUFFER AND SEND ───
-async function sendAnimeReaction(sock, msg, type, description) {
-    const jid = msg.key.remoteJid;
-    try {
-        await sock.sendMessage(jid, { react: { text: "⏳", key: msg.key } });
-        
-        // 1. Get the media URL from API safely
-        const mediaUrl = await fetchAnimeUrl(type);
-
-        // 2. Download the media as buffer
-        const mediaRes = await axios.get(mediaUrl, { 
-            responseType: 'arraybuffer', 
-            timeout: 15000,
-            headers: { "User-Agent": "Mozilla/5.0" } 
-        });
-        const mediaBuffer = Buffer.from(mediaRes.data);
-        const isGif = mediaUrl.endsWith(".gif") || mediaUrl.includes("gif");
-
-        // 3. Send to WhatsApp
-        if (isGif) {
-            await sock.sendMessage(jid, { 
-                video: mediaBuffer, 
-                gifPlayback: true,
-                caption: `🌸 *${description}*` 
-            }, { quoted: msg });
-        } else {
-            await sock.sendMessage(jid, { 
-                image: mediaBuffer, 
-                caption: `🌸 *${description}*` 
-            }, { quoted: msg });
-        }
-
-        await sock.sendMessage(jid, { react: { text: "✅", key: msg.key } });
-    } catch (err) {
-        console.error(`Anime API Error (${type}):`, err.message);
-        await sock.sendMessage(jid, { react: { text: "❌", key: msg.key } });
-        await sock.sendMessage(jid, { text: `❌ *Failed to fetch ${type}. Please try again.*` }, { quoted: msg });
-    }
-}
-
 module.exports = [
     {
-        name: 'neko', category: 'anime', description: 'Random Neko anime image',
-        async execute(sock, msg) { await sendAnimeReaction(sock, msg, 'neko', 'Random Neko'); }
+        name: 'neko',
+        category: 'anime',
+        description: 'Random Neko anime image',
+        async execute(sock, msg, args) {
+            const jid = msg.key.remoteJid;
+            try {
+                await sock.sendMessage(jid, { react: { text: "⏳", key: msg.key } });
+                
+                const apiRes = await axios.get(`https://api.nexray.eu.cc/random/anime?type=neko`, { timeout: 10000 });
+                const mediaUrl = apiRes.data?.result || apiRes.data?.url;
+                if (!mediaUrl) throw new Error("No URL");
+
+                const bufferRes = await axios.get(mediaUrl, { responseType: 'arraybuffer', timeout: 15000 });
+                const mediaBuffer = Buffer.from(bufferRes.data);
+
+                if (mediaUrl.endsWith('.gif') || mediaUrl.includes('gif')) {
+                    await sock.sendMessage(jid, { video: mediaBuffer, gifPlayback: true, caption: `🌸 *Random Neko*` }, { quoted: msg });
+                } else {
+                    await sock.sendMessage(jid, { image: mediaBuffer, caption: `🌸 *Random Neko*` }, { quoted: msg });
+                }
+                await sock.sendMessage(jid, { react: { text: "✅", key: msg.key } });
+            } catch (err) {
+                console.error("neko Error:", err.message);
+                await sock.sendMessage(jid, { react: { text: "❌", key: msg.key } });
+                await sock.sendMessage(jid, { text: "❌ *Failed to fetch image.*" }, { quoted: msg });
+            }
+        }
     },
     {
-        name: 'shinobu', category: 'anime', description: 'Random Shinobu anime image',
-        async execute(sock, msg) { await sendAnimeReaction(sock, msg, 'shinobu', 'Shinobu Oshino'); }
+        name: 'shinobu',
+        category: 'anime',
+        description: 'Random Shinobu anime image',
+        async execute(sock, msg, args) {
+            const jid = msg.key.remoteJid;
+            try {
+                await sock.sendMessage(jid, { react: { text: "⏳", key: msg.key } });
+                
+                const apiRes = await axios.get(`https://api.nexray.eu.cc/random/anime?type=shinobu`, { timeout: 10000 });
+                const mediaUrl = apiRes.data?.result || apiRes.data?.url;
+                if (!mediaUrl) throw new Error("No URL");
+
+                const bufferRes = await axios.get(mediaUrl, { responseType: 'arraybuffer', timeout: 15000 });
+                const mediaBuffer = Buffer.from(bufferRes.data);
+
+                if (mediaUrl.endsWith('.gif') || mediaUrl.includes('gif')) {
+                    await sock.sendMessage(jid, { video: mediaBuffer, gifPlayback: true, caption: `🌸 *Shinobu Oshino*` }, { quoted: msg });
+                } else {
+                    await sock.sendMessage(jid, { image: mediaBuffer, caption: `🌸 *Shinobu Oshino*` }, { quoted: msg });
+                }
+                await sock.sendMessage(jid, { react: { text: "✅", key: msg.key } });
+            } catch (err) {
+                console.error("shinobu Error:", err.message);
+                await sock.sendMessage(jid, { react: { text: "❌", key: msg.key } });
+                await sock.sendMessage(jid, { text: "❌ *Failed to fetch image.*" }, { quoted: msg });
+            }
+        }
     },
     {
-        name: 'megumin', category: 'anime', description: 'Random Megumin anime image',
-        async execute(sock, msg) { await sendAnimeReaction(sock, msg, 'megumin', 'Megumin'); }
+        name: 'megumin',
+        category: 'anime',
+        description: 'Random Megumin anime image',
+        async execute(sock, msg, args) {
+            const jid = msg.key.remoteJid;
+            try {
+                await sock.sendMessage(jid, { react: { text: "⏳", key: msg.key } });
+                
+                const apiRes = await axios.get(`https://api.nexray.eu.cc/random/anime?type=megumin`, { timeout: 10000 });
+                const mediaUrl = apiRes.data?.result || apiRes.data?.url;
+                if (!mediaUrl) throw new Error("No URL");
+
+                const bufferRes = await axios.get(mediaUrl, { responseType: 'arraybuffer', timeout: 15000 });
+                const mediaBuffer = Buffer.from(bufferRes.data);
+
+                if (mediaUrl.endsWith('.gif') || mediaUrl.includes('gif')) {
+                    await sock.sendMessage(jid, { video: mediaBuffer, gifPlayback: true, caption: `🌸 *Megumin*` }, { quoted: msg });
+                } else {
+                    await sock.sendMessage(jid, { image: mediaBuffer, caption: `🌸 *Megumin*` }, { quoted: msg });
+                }
+                await sock.sendMessage(jid, { react: { text: "✅", key: msg.key } });
+            } catch (err) {
+                console.error("megumin Error:", err.message);
+                await sock.sendMessage(jid, { react: { text: "❌", key: msg.key } });
+                await sock.sendMessage(jid, { text: "❌ *Failed to fetch image.*" }, { quoted: msg });
+            }
+        }
     },
     {
-        name: 'bully', category: 'anime', description: 'Random bully anime reaction',
-        async execute(sock, msg) { await sendAnimeReaction(sock, msg, 'bully', 'Anime Bully Reaction'); }
+        name: 'bully',
+        category: 'anime',
+        description: 'Random bully anime reaction',
+        async execute(sock, msg, args) {
+            const jid = msg.key.remoteJid;
+            try {
+                await sock.sendMessage(jid, { react: { text: "⏳", key: msg.key } });
+                
+                const apiRes = await axios.get(`https://api.nexray.eu.cc/random/anime?type=bully`, { timeout: 10000 });
+                const mediaUrl = apiRes.data?.result || apiRes.data?.url;
+                if (!mediaUrl) throw new Error("No URL");
+
+                const bufferRes = await axios.get(mediaUrl, { responseType: 'arraybuffer', timeout: 15000 });
+                const mediaBuffer = Buffer.from(bufferRes.data);
+
+                if (mediaUrl.endsWith('.gif') || mediaUrl.includes('gif')) {
+                    await sock.sendMessage(jid, { video: mediaBuffer, gifPlayback: true, caption: `🌸 *Anime Bully Reaction*` }, { quoted: msg });
+                } else {
+                    await sock.sendMessage(jid, { image: mediaBuffer, caption: `🌸 *Anime Bully Reaction*` }, { quoted: msg });
+                }
+                await sock.sendMessage(jid, { react: { text: "✅", key: msg.key } });
+            } catch (err) {
+                console.error("bully Error:", err.message);
+                await sock.sendMessage(jid, { react: { text: "❌", key: msg.key } });
+                await sock.sendMessage(jid, { text: "❌ *Failed to fetch image.*" }, { quoted: msg });
+            }
+        }
     },
     {
-        name: 'cuddle', category: 'anime', description: 'Random cuddle anime reaction',
-        async execute(sock, msg) { await sendAnimeReaction(sock, msg, 'cuddle', 'Anime Cuddle'); }
+        name: 'cuddle',
+        category: 'anime',
+        description: 'Random cuddle anime reaction',
+        async execute(sock, msg, args) {
+            const jid = msg.key.remoteJid;
+            try {
+                await sock.sendMessage(jid, { react: { text: "⏳", key: msg.key } });
+                
+                const apiRes = await axios.get(`https://api.nexray.eu.cc/random/anime?type=cuddle`, { timeout: 10000 });
+                const mediaUrl = apiRes.data?.result || apiRes.data?.url;
+                if (!mediaUrl) throw new Error("No URL");
+
+                const bufferRes = await axios.get(mediaUrl, { responseType: 'arraybuffer', timeout: 15000 });
+                const mediaBuffer = Buffer.from(bufferRes.data);
+
+                if (mediaUrl.endsWith('.gif') || mediaUrl.includes('gif')) {
+                    await sock.sendMessage(jid, { video: mediaBuffer, gifPlayback: true, caption: `🌸 *Anime Cuddle*` }, { quoted: msg });
+                } else {
+                    await sock.sendMessage(jid, { image: mediaBuffer, caption: `🌸 *Anime Cuddle*` }, { quoted: msg });
+                }
+                await sock.sendMessage(jid, { react: { text: "✅", key: msg.key } });
+            } catch (err) {
+                console.error("cuddle Error:", err.message);
+                await sock.sendMessage(jid, { react: { text: "❌", key: msg.key } });
+                await sock.sendMessage(jid, { text: "❌ *Failed to fetch image.*" }, { quoted: msg });
+            }
+        }
     },
     {
-        name: 'cry', category: 'anime', description: 'Random cry anime reaction',
-        async execute(sock, msg) { await sendAnimeReaction(sock, msg, 'cry', 'Anime Cry'); }
+        name: 'cry',
+        category: 'anime',
+        description: 'Random cry anime reaction',
+        async execute(sock, msg, args) {
+            const jid = msg.key.remoteJid;
+            try {
+                await sock.sendMessage(jid, { react: { text: "⏳", key: msg.key } });
+                
+                const apiRes = await axios.get(`https://api.nexray.eu.cc/random/anime?type=cry`, { timeout: 10000 });
+                const mediaUrl = apiRes.data?.result || apiRes.data?.url;
+                if (!mediaUrl) throw new Error("No URL");
+
+                const bufferRes = await axios.get(mediaUrl, { responseType: 'arraybuffer', timeout: 15000 });
+                const mediaBuffer = Buffer.from(bufferRes.data);
+
+                if (mediaUrl.endsWith('.gif') || mediaUrl.includes('gif')) {
+                    await sock.sendMessage(jid, { video: mediaBuffer, gifPlayback: true, caption: `🌸 *Anime Cry*` }, { quoted: msg });
+                } else {
+                    await sock.sendMessage(jid, { image: mediaBuffer, caption: `🌸 *Anime Cry*` }, { quoted: msg });
+                }
+                await sock.sendMessage(jid, { react: { text: "✅", key: msg.key } });
+            } catch (err) {
+                console.error("cry Error:", err.message);
+                await sock.sendMessage(jid, { react: { text: "❌", key: msg.key } });
+                await sock.sendMessage(jid, { text: "❌ *Failed to fetch image.*" }, { quoted: msg });
+            }
+        }
     },
     {
-        name: 'awoo', category: 'anime', description: 'Random awoo anime reaction',
-        async execute(sock, msg) { await sendAnimeReaction(sock, msg, 'awoo', 'Anime Awoo'); }
+        name: 'awoo',
+        category: 'anime',
+        description: 'Random awoo anime reaction',
+        async execute(sock, msg, args) {
+            const jid = msg.key.remoteJid;
+            try {
+                await sock.sendMessage(jid, { react: { text: "⏳", key: msg.key } });
+                
+                const apiRes = await axios.get(`https://api.nexray.eu.cc/random/anime?type=awoo`, { timeout: 10000 });
+                const mediaUrl = apiRes.data?.result || apiRes.data?.url;
+                if (!mediaUrl) throw new Error("No URL");
+
+                const bufferRes = await axios.get(mediaUrl, { responseType: 'arraybuffer', timeout: 15000 });
+                const mediaBuffer = Buffer.from(bufferRes.data);
+
+                if (mediaUrl.endsWith('.gif') || mediaUrl.includes('gif')) {
+                    await sock.sendMessage(jid, { video: mediaBuffer, gifPlayback: true, caption: `🌸 *Anime Awoo*` }, { quoted: msg });
+                } else {
+                    await sock.sendMessage(jid, { image: mediaBuffer, caption: `🌸 *Anime Awoo*` }, { quoted: msg });
+                }
+                await sock.sendMessage(jid, { react: { text: "✅", key: msg.key } });
+            } catch (err) {
+                console.error("awoo Error:", err.message);
+                await sock.sendMessage(jid, { react: { text: "❌", key: msg.key } });
+                await sock.sendMessage(jid, { text: "❌ *Failed to fetch image.*" }, { quoted: msg });
+            }
+        }
     },
     {
-        name: 'lick', category: 'anime', description: 'Random lick anime reaction',
-        async execute(sock, msg) { await sendAnimeReaction(sock, msg, 'lick', 'Anime Lick'); }
+        name: 'lick',
+        category: 'anime',
+        description: 'Random lick anime reaction',
+        async execute(sock, msg, args) {
+            const jid = msg.key.remoteJid;
+            try {
+                await sock.sendMessage(jid, { react: { text: "⏳", key: msg.key } });
+                
+                const apiRes = await axios.get(`https://api.nexray.eu.cc/random/anime?type=lick`, { timeout: 10000 });
+                const mediaUrl = apiRes.data?.result || apiRes.data?.url;
+                if (!mediaUrl) throw new Error("No URL");
+
+                const bufferRes = await axios.get(mediaUrl, { responseType: 'arraybuffer', timeout: 15000 });
+                const mediaBuffer = Buffer.from(bufferRes.data);
+
+                if (mediaUrl.endsWith('.gif') || mediaUrl.includes('gif')) {
+                    await sock.sendMessage(jid, { video: mediaBuffer, gifPlayback: true, caption: `🌸 *Anime Lick*` }, { quoted: msg });
+                } else {
+                    await sock.sendMessage(jid, { image: mediaBuffer, caption: `🌸 *Anime Lick*` }, { quoted: msg });
+                }
+                await sock.sendMessage(jid, { react: { text: "✅", key: msg.key } });
+            } catch (err) {
+                console.error("lick Error:", err.message);
+                await sock.sendMessage(jid, { react: { text: "❌", key: msg.key } });
+                await sock.sendMessage(jid, { text: "❌ *Failed to fetch image.*" }, { quoted: msg });
+            }
+        }
     },
     {
-        name: 'pat', category: 'anime', description: 'Random pat anime reaction',
-        async execute(sock, msg) { await sendAnimeReaction(sock, msg, 'pat', 'Anime Pat'); }
+        name: 'pat',
+        category: 'anime',
+        description: 'Random pat anime reaction',
+        async execute(sock, msg, args) {
+            const jid = msg.key.remoteJid;
+            try {
+                await sock.sendMessage(jid, { react: { text: "⏳", key: msg.key } });
+                
+                const apiRes = await axios.get(`https://api.nexray.eu.cc/random/anime?type=pat`, { timeout: 10000 });
+                const mediaUrl = apiRes.data?.result || apiRes.data?.url;
+                if (!mediaUrl) throw new Error("No URL");
+
+                const bufferRes = await axios.get(mediaUrl, { responseType: 'arraybuffer', timeout: 15000 });
+                const mediaBuffer = Buffer.from(bufferRes.data);
+
+                if (mediaUrl.endsWith('.gif') || mediaUrl.includes('gif')) {
+                    await sock.sendMessage(jid, { video: mediaBuffer, gifPlayback: true, caption: `🌸 *Anime Pat*` }, { quoted: msg });
+                } else {
+                    await sock.sendMessage(jid, { image: mediaBuffer, caption: `🌸 *Anime Pat*` }, { quoted: msg });
+                }
+                await sock.sendMessage(jid, { react: { text: "✅", key: msg.key } });
+            } catch (err) {
+                console.error("pat Error:", err.message);
+                await sock.sendMessage(jid, { react: { text: "❌", key: msg.key } });
+                await sock.sendMessage(jid, { text: "❌ *Failed to fetch image.*" }, { quoted: msg });
+            }
+        }
     },
     {
-        name: 'smug', category: 'anime', description: 'Random smug anime reaction',
-        async execute(sock, msg) { await sendAnimeReaction(sock, msg, 'smug', 'Anime Smug'); }
+        name: 'smug',
+        category: 'anime',
+        description: 'Random smug anime reaction',
+        async execute(sock, msg, args) {
+            const jid = msg.key.remoteJid;
+            try {
+                await sock.sendMessage(jid, { react: { text: "⏳", key: msg.key } });
+                
+                const apiRes = await axios.get(`https://api.nexray.eu.cc/random/anime?type=smug`, { timeout: 10000 });
+                const mediaUrl = apiRes.data?.result || apiRes.data?.url;
+                if (!mediaUrl) throw new Error("No URL");
+
+                const bufferRes = await axios.get(mediaUrl, { responseType: 'arraybuffer', timeout: 15000 });
+                const mediaBuffer = Buffer.from(bufferRes.data);
+
+                if (mediaUrl.endsWith('.gif') || mediaUrl.includes('gif')) {
+                    await sock.sendMessage(jid, { video: mediaBuffer, gifPlayback: true, caption: `🌸 *Anime Smug*` }, { quoted: msg });
+                } else {
+                    await sock.sendMessage(jid, { image: mediaBuffer, caption: `🌸 *Anime Smug*` }, { quoted: msg });
+                }
+                await sock.sendMessage(jid, { react: { text: "✅", key: msg.key } });
+            } catch (err) {
+                console.error("smug Error:", err.message);
+                await sock.sendMessage(jid, { react: { text: "❌", key: msg.key } });
+                await sock.sendMessage(jid, { text: "❌ *Failed to fetch image.*" }, { quoted: msg });
+            }
+        }
     },
     {
-        name: 'bonk', category: 'anime', description: 'Random bonk anime reaction',
-        async execute(sock, msg) { await sendAnimeReaction(sock, msg, 'bonk', 'Anime Bonk'); }
+        name: 'bonk',
+        category: 'anime',
+        description: 'Random bonk anime reaction',
+        async execute(sock, msg, args) {
+            const jid = msg.key.remoteJid;
+            try {
+                await sock.sendMessage(jid, { react: { text: "⏳", key: msg.key } });
+                
+                const apiRes = await axios.get(`https://api.nexray.eu.cc/random/anime?type=bonk`, { timeout: 10000 });
+                const mediaUrl = apiRes.data?.result || apiRes.data?.url;
+                if (!mediaUrl) throw new Error("No URL");
+
+                const bufferRes = await axios.get(mediaUrl, { responseType: 'arraybuffer', timeout: 15000 });
+                const mediaBuffer = Buffer.from(bufferRes.data);
+
+                if (mediaUrl.endsWith('.gif') || mediaUrl.includes('gif')) {
+                    await sock.sendMessage(jid, { video: mediaBuffer, gifPlayback: true, caption: `🌸 *Anime Bonk*` }, { quoted: msg });
+                } else {
+                    await sock.sendMessage(jid, { image: mediaBuffer, caption: `🌸 *Anime Bonk*` }, { quoted: msg });
+                }
+                await sock.sendMessage(jid, { react: { text: "✅", key: msg.key } });
+            } catch (err) {
+                console.error("bonk Error:", err.message);
+                await sock.sendMessage(jid, { react: { text: "❌", key: msg.key } });
+                await sock.sendMessage(jid, { text: "❌ *Failed to fetch image.*" }, { quoted: msg });
+            }
+        }
     },
     {
-        name: 'yeet', category: 'anime', description: 'Random yeet anime reaction',
-        async execute(sock, msg) { await sendAnimeReaction(sock, msg, 'yeet', 'Anime Yeet'); }
+        name: 'yeet',
+        category: 'anime',
+        description: 'Random yeet anime reaction',
+        async execute(sock, msg, args) {
+            const jid = msg.key.remoteJid;
+            try {
+                await sock.sendMessage(jid, { react: { text: "⏳", key: msg.key } });
+                
+                const apiRes = await axios.get(`https://api.nexray.eu.cc/random/anime?type=yeet`, { timeout: 10000 });
+                const mediaUrl = apiRes.data?.result || apiRes.data?.url;
+                if (!mediaUrl) throw new Error("No URL");
+
+                const bufferRes = await axios.get(mediaUrl, { responseType: 'arraybuffer', timeout: 15000 });
+                const mediaBuffer = Buffer.from(bufferRes.data);
+
+                if (mediaUrl.endsWith('.gif') || mediaUrl.includes('gif')) {
+                    await sock.sendMessage(jid, { video: mediaBuffer, gifPlayback: true, caption: `🌸 *Anime Yeet*` }, { quoted: msg });
+                } else {
+                    await sock.sendMessage(jid, { image: mediaBuffer, caption: `🌸 *Anime Yeet*` }, { quoted: msg });
+                }
+                await sock.sendMessage(jid, { react: { text: "✅", key: msg.key } });
+            } catch (err) {
+                console.error("yeet Error:", err.message);
+                await sock.sendMessage(jid, { react: { text: "❌", key: msg.key } });
+                await sock.sendMessage(jid, { text: "❌ *Failed to fetch image.*" }, { quoted: msg });
+            }
+        }
     },
     {
-        name: 'blush', category: 'anime', description: 'Random blush anime reaction',
-        async execute(sock, msg) { await sendAnimeReaction(sock, msg, 'blush', 'Anime Blush'); }
+        name: 'blush',
+        category: 'anime',
+        description: 'Random blush anime reaction',
+        async execute(sock, msg, args) {
+            const jid = msg.key.remoteJid;
+            try {
+                await sock.sendMessage(jid, { react: { text: "⏳", key: msg.key } });
+                
+                const apiRes = await axios.get(`https://api.nexray.eu.cc/random/anime?type=blush`, { timeout: 10000 });
+                const mediaUrl = apiRes.data?.result || apiRes.data?.url;
+                if (!mediaUrl) throw new Error("No URL");
+
+                const bufferRes = await axios.get(mediaUrl, { responseType: 'arraybuffer', timeout: 15000 });
+                const mediaBuffer = Buffer.from(bufferRes.data);
+
+                if (mediaUrl.endsWith('.gif') || mediaUrl.includes('gif')) {
+                    await sock.sendMessage(jid, { video: mediaBuffer, gifPlayback: true, caption: `🌸 *Anime Blush*` }, { quoted: msg });
+                } else {
+                    await sock.sendMessage(jid, { image: mediaBuffer, caption: `🌸 *Anime Blush*` }, { quoted: msg });
+                }
+                await sock.sendMessage(jid, { react: { text: "✅", key: msg.key } });
+            } catch (err) {
+                console.error("blush Error:", err.message);
+                await sock.sendMessage(jid, { react: { text: "❌", key: msg.key } });
+                await sock.sendMessage(jid, { text: "❌ *Failed to fetch image.*" }, { quoted: msg });
+            }
+        }
     },
     {
-        name: 'smile', category: 'anime', description: 'Random smile anime reaction',
-        async execute(sock, msg) { await sendAnimeReaction(sock, msg, 'smile', 'Anime Smile'); }
+        name: 'smile',
+        category: 'anime',
+        description: 'Random smile anime reaction',
+        async execute(sock, msg, args) {
+            const jid = msg.key.remoteJid;
+            try {
+                await sock.sendMessage(jid, { react: { text: "⏳", key: msg.key } });
+                
+                const apiRes = await axios.get(`https://api.nexray.eu.cc/random/anime?type=smile`, { timeout: 10000 });
+                const mediaUrl = apiRes.data?.result || apiRes.data?.url;
+                if (!mediaUrl) throw new Error("No URL");
+
+                const bufferRes = await axios.get(mediaUrl, { responseType: 'arraybuffer', timeout: 15000 });
+                const mediaBuffer = Buffer.from(bufferRes.data);
+
+                if (mediaUrl.endsWith('.gif') || mediaUrl.includes('gif')) {
+                    await sock.sendMessage(jid, { video: mediaBuffer, gifPlayback: true, caption: `🌸 *Anime Smile*` }, { quoted: msg });
+                } else {
+                    await sock.sendMessage(jid, { image: mediaBuffer, caption: `🌸 *Anime Smile*` }, { quoted: msg });
+                }
+                await sock.sendMessage(jid, { react: { text: "✅", key: msg.key } });
+            } catch (err) {
+                console.error("smile Error:", err.message);
+                await sock.sendMessage(jid, { react: { text: "❌", key: msg.key } });
+                await sock.sendMessage(jid, { text: "❌ *Failed to fetch image.*" }, { quoted: msg });
+            }
+        }
     },
     {
-        name: 'highfive', category: 'anime', description: 'Random highfive anime reaction',
-        async execute(sock, msg) { await sendAnimeReaction(sock, msg, 'highfive', 'Anime Highfive'); }
+        name: 'highfive',
+        category: 'anime',
+        description: 'Random highfive anime reaction',
+        async execute(sock, msg, args) {
+            const jid = msg.key.remoteJid;
+            try {
+                await sock.sendMessage(jid, { react: { text: "⏳", key: msg.key } });
+                
+                const apiRes = await axios.get(`https://api.nexray.eu.cc/random/anime?type=highfive`, { timeout: 10000 });
+                const mediaUrl = apiRes.data?.result || apiRes.data?.url;
+                if (!mediaUrl) throw new Error("No URL");
+
+                const bufferRes = await axios.get(mediaUrl, { responseType: 'arraybuffer', timeout: 15000 });
+                const mediaBuffer = Buffer.from(bufferRes.data);
+
+                if (mediaUrl.endsWith('.gif') || mediaUrl.includes('gif')) {
+                    await sock.sendMessage(jid, { video: mediaBuffer, gifPlayback: true, caption: `🌸 *Anime Highfive*` }, { quoted: msg });
+                } else {
+                    await sock.sendMessage(jid, { image: mediaBuffer, caption: `🌸 *Anime Highfive*` }, { quoted: msg });
+                }
+                await sock.sendMessage(jid, { react: { text: "✅", key: msg.key } });
+            } catch (err) {
+                console.error("highfive Error:", err.message);
+                await sock.sendMessage(jid, { react: { text: "❌", key: msg.key } });
+                await sock.sendMessage(jid, { text: "❌ *Failed to fetch image.*" }, { quoted: msg });
+            }
+        }
     },
     {
-        name: 'handhold', category: 'anime', description: 'Random handhold anime reaction',
-        async execute(sock, msg) { await sendAnimeReaction(sock, msg, 'handhold', 'Anime Handhold'); }
+        name: 'handhold',
+        category: 'anime',
+        description: 'Random handhold anime reaction',
+        async execute(sock, msg, args) {
+            const jid = msg.key.remoteJid;
+            try {
+                await sock.sendMessage(jid, { react: { text: "⏳", key: msg.key } });
+                
+                const apiRes = await axios.get(`https://api.nexray.eu.cc/random/anime?type=handhold`, { timeout: 10000 });
+                const mediaUrl = apiRes.data?.result || apiRes.data?.url;
+                if (!mediaUrl) throw new Error("No URL");
+
+                const bufferRes = await axios.get(mediaUrl, { responseType: 'arraybuffer', timeout: 15000 });
+                const mediaBuffer = Buffer.from(bufferRes.data);
+
+                if (mediaUrl.endsWith('.gif') || mediaUrl.includes('gif')) {
+                    await sock.sendMessage(jid, { video: mediaBuffer, gifPlayback: true, caption: `🌸 *Anime Handhold*` }, { quoted: msg });
+                } else {
+                    await sock.sendMessage(jid, { image: mediaBuffer, caption: `🌸 *Anime Handhold*` }, { quoted: msg });
+                }
+                await sock.sendMessage(jid, { react: { text: "✅", key: msg.key } });
+            } catch (err) {
+                console.error("handhold Error:", err.message);
+                await sock.sendMessage(jid, { react: { text: "❌", key: msg.key } });
+                await sock.sendMessage(jid, { text: "❌ *Failed to fetch image.*" }, { quoted: msg });
+            }
+        }
     },
     {
-        name: 'nom', category: 'anime', description: 'Random nom anime reaction',
-        async execute(sock, msg) { await sendAnimeReaction(sock, msg, 'nom', 'Anime Nom'); }
+        name: 'nom',
+        category: 'anime',
+        description: 'Random nom anime reaction',
+        async execute(sock, msg, args) {
+            const jid = msg.key.remoteJid;
+            try {
+                await sock.sendMessage(jid, { react: { text: "⏳", key: msg.key } });
+                
+                const apiRes = await axios.get(`https://api.nexray.eu.cc/random/anime?type=nom`, { timeout: 10000 });
+                const mediaUrl = apiRes.data?.result || apiRes.data?.url;
+                if (!mediaUrl) throw new Error("No URL");
+
+                const bufferRes = await axios.get(mediaUrl, { responseType: 'arraybuffer', timeout: 15000 });
+                const mediaBuffer = Buffer.from(bufferRes.data);
+
+                if (mediaUrl.endsWith('.gif') || mediaUrl.includes('gif')) {
+                    await sock.sendMessage(jid, { video: mediaBuffer, gifPlayback: true, caption: `🌸 *Anime Nom*` }, { quoted: msg });
+                } else {
+                    await sock.sendMessage(jid, { image: mediaBuffer, caption: `🌸 *Anime Nom*` }, { quoted: msg });
+                }
+                await sock.sendMessage(jid, { react: { text: "✅", key: msg.key } });
+            } catch (err) {
+                console.error("nom Error:", err.message);
+                await sock.sendMessage(jid, { react: { text: "❌", key: msg.key } });
+                await sock.sendMessage(jid, { text: "❌ *Failed to fetch image.*" }, { quoted: msg });
+            }
+        }
     },
     {
-        name: 'bite', category: 'anime', description: 'Random bite anime reaction',
-        async execute(sock, msg) { await sendAnimeReaction(sock, msg, 'bite', 'Anime Bite'); }
+        name: 'bite',
+        category: 'anime',
+        description: 'Random bite anime reaction',
+        async execute(sock, msg, args) {
+            const jid = msg.key.remoteJid;
+            try {
+                await sock.sendMessage(jid, { react: { text: "⏳", key: msg.key } });
+                
+                const apiRes = await axios.get(`https://api.nexray.eu.cc/random/anime?type=bite`, { timeout: 10000 });
+                const mediaUrl = apiRes.data?.result || apiRes.data?.url;
+                if (!mediaUrl) throw new Error("No URL");
+
+                const bufferRes = await axios.get(mediaUrl, { responseType: 'arraybuffer', timeout: 15000 });
+                const mediaBuffer = Buffer.from(bufferRes.data);
+
+                if (mediaUrl.endsWith('.gif') || mediaUrl.includes('gif')) {
+                    await sock.sendMessage(jid, { video: mediaBuffer, gifPlayback: true, caption: `🌸 *Anime Bite*` }, { quoted: msg });
+                } else {
+                    await sock.sendMessage(jid, { image: mediaBuffer, caption: `🌸 *Anime Bite*` }, { quoted: msg });
+                }
+                await sock.sendMessage(jid, { react: { text: "✅", key: msg.key } });
+            } catch (err) {
+                console.error("bite Error:", err.message);
+                await sock.sendMessage(jid, { react: { text: "❌", key: msg.key } });
+                await sock.sendMessage(jid, { text: "❌ *Failed to fetch image.*" }, { quoted: msg });
+            }
+        }
     },
     {
-        name: 'glomp', category: 'anime', description: 'Random glomp anime reaction',
-        async execute(sock, msg) { await sendAnimeReaction(sock, msg, 'glomp', 'Anime Glomp'); }
+        name: 'glomp',
+        category: 'anime',
+        description: 'Random glomp anime reaction',
+        async execute(sock, msg, args) {
+            const jid = msg.key.remoteJid;
+            try {
+                await sock.sendMessage(jid, { react: { text: "⏳", key: msg.key } });
+                
+                const apiRes = await axios.get(`https://api.nexray.eu.cc/random/anime?type=glomp`, { timeout: 10000 });
+                const mediaUrl = apiRes.data?.result || apiRes.data?.url;
+                if (!mediaUrl) throw new Error("No URL");
+
+                const bufferRes = await axios.get(mediaUrl, { responseType: 'arraybuffer', timeout: 15000 });
+                const mediaBuffer = Buffer.from(bufferRes.data);
+
+                if (mediaUrl.endsWith('.gif') || mediaUrl.includes('gif')) {
+                    await sock.sendMessage(jid, { video: mediaBuffer, gifPlayback: true, caption: `🌸 *Anime Glomp*` }, { quoted: msg });
+                } else {
+                    await sock.sendMessage(jid, { image: mediaBuffer, caption: `🌸 *Anime Glomp*` }, { quoted: msg });
+                }
+                await sock.sendMessage(jid, { react: { text: "✅", key: msg.key } });
+            } catch (err) {
+                console.error("glomp Error:", err.message);
+                await sock.sendMessage(jid, { react: { text: "❌", key: msg.key } });
+                await sock.sendMessage(jid, { text: "❌ *Failed to fetch image.*" }, { quoted: msg });
+            }
+        }
     },
     {
-        name: 'slap', category: 'anime', description: 'Random slap anime reaction',
-        async execute(sock, msg) { await sendAnimeReaction(sock, msg, 'slap', 'Anime Slap'); }
+        name: 'slap',
+        category: 'anime',
+        description: 'Random slap anime reaction',
+        async execute(sock, msg, args) {
+            const jid = msg.key.remoteJid;
+            try {
+                await sock.sendMessage(jid, { react: { text: "⏳", key: msg.key } });
+                
+                const apiRes = await axios.get(`https://api.nexray.eu.cc/random/anime?type=slap`, { timeout: 10000 });
+                const mediaUrl = apiRes.data?.result || apiRes.data?.url;
+                if (!mediaUrl) throw new Error("No URL");
+
+                const bufferRes = await axios.get(mediaUrl, { responseType: 'arraybuffer', timeout: 15000 });
+                const mediaBuffer = Buffer.from(bufferRes.data);
+
+                if (mediaUrl.endsWith('.gif') || mediaUrl.includes('gif')) {
+                    await sock.sendMessage(jid, { video: mediaBuffer, gifPlayback: true, caption: `🌸 *Anime Slap*` }, { quoted: msg });
+                } else {
+                    await sock.sendMessage(jid, { image: mediaBuffer, caption: `🌸 *Anime Slap*` }, { quoted: msg });
+                }
+                await sock.sendMessage(jid, { react: { text: "✅", key: msg.key } });
+            } catch (err) {
+                console.error("slap Error:", err.message);
+                await sock.sendMessage(jid, { react: { text: "❌", key: msg.key } });
+                await sock.sendMessage(jid, { text: "❌ *Failed to fetch image.*" }, { quoted: msg });
+            }
+        }
     },
     {
-        name: 'kill', category: 'anime', description: 'Random kill anime reaction',
-        async execute(sock, msg) { await sendAnimeReaction(sock, msg, 'kill', 'Anime Kill'); }
+        name: 'kill',
+        category: 'anime',
+        description: 'Random kill anime reaction',
+        async execute(sock, msg, args) {
+            const jid = msg.key.remoteJid;
+            try {
+                await sock.sendMessage(jid, { react: { text: "⏳", key: msg.key } });
+                
+                const apiRes = await axios.get(`https://api.nexray.eu.cc/random/anime?type=kill`, { timeout: 10000 });
+                const mediaUrl = apiRes.data?.result || apiRes.data?.url;
+                if (!mediaUrl) throw new Error("No URL");
+
+                const bufferRes = await axios.get(mediaUrl, { responseType: 'arraybuffer', timeout: 15000 });
+                const mediaBuffer = Buffer.from(bufferRes.data);
+
+                if (mediaUrl.endsWith('.gif') || mediaUrl.includes('gif')) {
+                    await sock.sendMessage(jid, { video: mediaBuffer, gifPlayback: true, caption: `🌸 *Anime Kill*` }, { quoted: msg });
+                } else {
+                    await sock.sendMessage(jid, { image: mediaBuffer, caption: `🌸 *Anime Kill*` }, { quoted: msg });
+                }
+                await sock.sendMessage(jid, { react: { text: "✅", key: msg.key } });
+            } catch (err) {
+                console.error("kill Error:", err.message);
+                await sock.sendMessage(jid, { react: { text: "❌", key: msg.key } });
+                await sock.sendMessage(jid, { text: "❌ *Failed to fetch image.*" }, { quoted: msg });
+            }
+        }
     },
     {
-        name: 'happy', category: 'anime', description: 'Random happy anime reaction',
-        async execute(sock, msg) { await sendAnimeReaction(sock, msg, 'happy', 'Anime Happy'); }
+        name: 'happy',
+        category: 'anime',
+        description: 'Random happy anime reaction',
+        async execute(sock, msg, args) {
+            const jid = msg.key.remoteJid;
+            try {
+                await sock.sendMessage(jid, { react: { text: "⏳", key: msg.key } });
+                
+                const apiRes = await axios.get(`https://api.nexray.eu.cc/random/anime?type=happy`, { timeout: 10000 });
+                const mediaUrl = apiRes.data?.result || apiRes.data?.url;
+                if (!mediaUrl) throw new Error("No URL");
+
+                const bufferRes = await axios.get(mediaUrl, { responseType: 'arraybuffer', timeout: 15000 });
+                const mediaBuffer = Buffer.from(bufferRes.data);
+
+                if (mediaUrl.endsWith('.gif') || mediaUrl.includes('gif')) {
+                    await sock.sendMessage(jid, { video: mediaBuffer, gifPlayback: true, caption: `🌸 *Anime Happy*` }, { quoted: msg });
+                } else {
+                    await sock.sendMessage(jid, { image: mediaBuffer, caption: `🌸 *Anime Happy*` }, { quoted: msg });
+                }
+                await sock.sendMessage(jid, { react: { text: "✅", key: msg.key } });
+            } catch (err) {
+                console.error("happy Error:", err.message);
+                await sock.sendMessage(jid, { react: { text: "❌", key: msg.key } });
+                await sock.sendMessage(jid, { text: "❌ *Failed to fetch image.*" }, { quoted: msg });
+            }
+        }
     },
     {
-        name: 'wink', category: 'anime', description: 'Random wink anime reaction',
-        async execute(sock, msg) { await sendAnimeReaction(sock, msg, 'wink', 'Anime Wink'); }
+        name: 'wink',
+        category: 'anime',
+        description: 'Random wink anime reaction',
+        async execute(sock, msg, args) {
+            const jid = msg.key.remoteJid;
+            try {
+                await sock.sendMessage(jid, { react: { text: "⏳", key: msg.key } });
+                
+                const apiRes = await axios.get(`https://api.nexray.eu.cc/random/anime?type=wink`, { timeout: 10000 });
+                const mediaUrl = apiRes.data?.result || apiRes.data?.url;
+                if (!mediaUrl) throw new Error("No URL");
+
+                const bufferRes = await axios.get(mediaUrl, { responseType: 'arraybuffer', timeout: 15000 });
+                const mediaBuffer = Buffer.from(bufferRes.data);
+
+                if (mediaUrl.endsWith('.gif') || mediaUrl.includes('gif')) {
+                    await sock.sendMessage(jid, { video: mediaBuffer, gifPlayback: true, caption: `🌸 *Anime Wink*` }, { quoted: msg });
+                } else {
+                    await sock.sendMessage(jid, { image: mediaBuffer, caption: `🌸 *Anime Wink*` }, { quoted: msg });
+                }
+                await sock.sendMessage(jid, { react: { text: "✅", key: msg.key } });
+            } catch (err) {
+                console.error("wink Error:", err.message);
+                await sock.sendMessage(jid, { react: { text: "❌", key: msg.key } });
+                await sock.sendMessage(jid, { text: "❌ *Failed to fetch image.*" }, { quoted: msg });
+            }
+        }
     },
     {
-        name: 'poke', category: 'anime', description: 'Random poke anime reaction',
-        async execute(sock, msg) { await sendAnimeReaction(sock, msg, 'poke', 'Anime Poke'); }
+        name: 'poke',
+        category: 'anime',
+        description: 'Random poke anime reaction',
+        async execute(sock, msg, args) {
+            const jid = msg.key.remoteJid;
+            try {
+                await sock.sendMessage(jid, { react: { text: "⏳", key: msg.key } });
+                
+                const apiRes = await axios.get(`https://api.nexray.eu.cc/random/anime?type=poke`, { timeout: 10000 });
+                const mediaUrl = apiRes.data?.result || apiRes.data?.url;
+                if (!mediaUrl) throw new Error("No URL");
+
+                const bufferRes = await axios.get(mediaUrl, { responseType: 'arraybuffer', timeout: 15000 });
+                const mediaBuffer = Buffer.from(bufferRes.data);
+
+                if (mediaUrl.endsWith('.gif') || mediaUrl.includes('gif')) {
+                    await sock.sendMessage(jid, { video: mediaBuffer, gifPlayback: true, caption: `🌸 *Anime Poke*` }, { quoted: msg });
+                } else {
+                    await sock.sendMessage(jid, { image: mediaBuffer, caption: `🌸 *Anime Poke*` }, { quoted: msg });
+                }
+                await sock.sendMessage(jid, { react: { text: "✅", key: msg.key } });
+            } catch (err) {
+                console.error("poke Error:", err.message);
+                await sock.sendMessage(jid, { react: { text: "❌", key: msg.key } });
+                await sock.sendMessage(jid, { text: "❌ *Failed to fetch image.*" }, { quoted: msg });
+            }
+        }
     },
     {
-        name: 'dance', category: 'anime', description: 'Random dance anime reaction',
-        async execute(sock, msg) { await sendAnimeReaction(sock, msg, 'dance', 'Anime Dance'); }
+        name: 'dance',
+        category: 'anime',
+        description: 'Random dance anime reaction',
+        async execute(sock, msg, args) {
+            const jid = msg.key.remoteJid;
+            try {
+                await sock.sendMessage(jid, { react: { text: "⏳", key: msg.key } });
+                
+                const apiRes = await axios.get(`https://api.nexray.eu.cc/random/anime?type=dance`, { timeout: 10000 });
+                const mediaUrl = apiRes.data?.result || apiRes.data?.url;
+                if (!mediaUrl) throw new Error("No URL");
+
+                const bufferRes = await axios.get(mediaUrl, { responseType: 'arraybuffer', timeout: 15000 });
+                const mediaBuffer = Buffer.from(bufferRes.data);
+
+                if (mediaUrl.endsWith('.gif') || mediaUrl.includes('gif')) {
+                    await sock.sendMessage(jid, { video: mediaBuffer, gifPlayback: true, caption: `🌸 *Anime Dance*` }, { quoted: msg });
+                } else {
+                    await sock.sendMessage(jid, { image: mediaBuffer, caption: `🌸 *Anime Dance*` }, { quoted: msg });
+                }
+                await sock.sendMessage(jid, { react: { text: "✅", key: msg.key } });
+            } catch (err) {
+                console.error("dance Error:", err.message);
+                await sock.sendMessage(jid, { react: { text: "❌", key: msg.key } });
+                await sock.sendMessage(jid, { text: "❌ *Failed to fetch image.*" }, { quoted: msg });
+            }
+        }
     },
     {
-        name: 'cringe', category: 'anime', description: 'Random cringe anime reaction',
-        async execute(sock, msg) { await sendAnimeReaction(sock, msg, 'cringe', 'Anime Cringe'); }
+        name: 'cringe',
+        category: 'anime',
+        description: 'Random cringe anime reaction',
+        async execute(sock, msg, args) {
+            const jid = msg.key.remoteJid;
+            try {
+                await sock.sendMessage(jid, { react: { text: "⏳", key: msg.key } });
+                
+                const apiRes = await axios.get(`https://api.nexray.eu.cc/random/anime?type=cringe`, { timeout: 10000 });
+                const mediaUrl = apiRes.data?.result || apiRes.data?.url;
+                if (!mediaUrl) throw new Error("No URL");
+
+                const bufferRes = await axios.get(mediaUrl, { responseType: 'arraybuffer', timeout: 15000 });
+                const mediaBuffer = Buffer.from(bufferRes.data);
+
+                if (mediaUrl.endsWith('.gif') || mediaUrl.includes('gif')) {
+                    await sock.sendMessage(jid, { video: mediaBuffer, gifPlayback: true, caption: `🌸 *Anime Cringe*` }, { quoted: msg });
+                } else {
+                    await sock.sendMessage(jid, { image: mediaBuffer, caption: `🌸 *Anime Cringe*` }, { quoted: msg });
+                }
+                await sock.sendMessage(jid, { react: { text: "✅", key: msg.key } });
+            } catch (err) {
+                console.error("cringe Error:", err.message);
+                await sock.sendMessage(jid, { react: { text: "❌", key: msg.key } });
+                await sock.sendMessage(jid, { text: "❌ *Failed to fetch image.*" }, { quoted: msg });
+            }
+        }
     },
-    // ==========================================
-    // 27. BRAT ANIME MAKER
-    // ==========================================
     {
         name: 'bratanime',
         category: 'anime',
@@ -193,7 +774,7 @@ module.exports = [
 
                 const apiUrl = `https://api.nexray.eu.cc/maker/bratanime?text=${encodeURIComponent(text)}`;
                 
-                // Fetch Image Buffer
+                // Fetch Image Buffer directly for bratanime
                 const res = await axios.get(apiUrl, { responseType: 'arraybuffer', timeout: 15000 });
                 const imageBuffer = Buffer.from(res.data);
 

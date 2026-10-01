@@ -1,10 +1,16 @@
+// plugins/sudo.js - KIRA X MD (Sudo Management Fix)
 const fs = require('fs');
 const path = require('path');
 
-// സ്യൂഡോ നമ്പറുകൾ സേവ് ചെയ്യാനുള്ള ഫയൽ പാത്ത്
 const sudoFile = path.join(process.cwd(), 'sudo.json');
 
-// ഫയൽ ഇല്ലെങ്കിൽ പുതിയതായി ഒരെണ്ണം ഉണ്ടാക്കുന്നു
+// 🔥 Helper to strictly format JID
+function formatJid(rawJid) {
+    if (!rawJid) return null;
+    const num = rawJid.split('@')[0].replace(/[^0-9]/g, '');
+    return num ? `${num}@s.whatsapp.net` : null;
+}
+
 const getSudo = () => {
     if (!fs.existsSync(sudoFile)) fs.writeFileSync(sudoFile, JSON.stringify([]));
     return JSON.parse(fs.readFileSync(sudoFile));
@@ -20,11 +26,17 @@ module.exports = [
         async execute(sock, msg, args, isOwner) {
             const jid = msg.key.remoteJid;
             
-            // ഓണർക്ക് മാത്രമേ വേറെ ആളെ സ്യൂഡോ ആക്കാൻ പറ്റൂ
+            // Only Main Owner
             if (!isOwner) return await sock.sendMessage(jid, { text: '❌ *This command is for the Owner only!*' }, { quoted: msg });
 
-            // റിപ്ലൈ ചെയ്ത മെസ്സേജിൽ നിന്നോ അല്ലെങ്കിൽ മെൻഷൻ ചെയ്തതിൽ നിന്നോ നമ്പർ എടുക്കുന്നു
-            let target = msg.message?.extendedTextMessage?.contextInfo?.participant || (args[0] ? args[0].replace(/[^0-9]/g, '') + '@s.whatsapp.net' : null);
+            // Extract Target
+            let rawTarget = msg.message?.extendedTextMessage?.contextInfo?.participant;
+            if (!rawTarget && args[0]) {
+                const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid;
+                rawTarget = mentioned && mentioned.length > 0 ? mentioned[0] : args[0];
+            }
+            
+            const target = formatJid(rawTarget);
             
             if (!target) return await sock.sendMessage(jid, { text: '❌ *Please reply to a user or mention their number!*\n_Example: .addsudo @user_' }, { quoted: msg });
 
@@ -50,7 +62,13 @@ module.exports = [
             const jid = msg.key.remoteJid;
             if (!isOwner) return await sock.sendMessage(jid, { text: '❌ *This command is for the Owner only!*' }, { quoted: msg });
 
-            let target = msg.message?.extendedTextMessage?.contextInfo?.participant || (args[0] ? args[0].replace(/[^0-9]/g, '') + '@s.whatsapp.net' : null);
+            let rawTarget = msg.message?.extendedTextMessage?.contextInfo?.participant;
+            if (!rawTarget && args[0]) {
+                const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid;
+                rawTarget = mentioned && mentioned.length > 0 ? mentioned[0] : args[0];
+            }
+            
+            const target = formatJid(rawTarget);
             
             if (!target) return await sock.sendMessage(jid, { text: '❌ *Please reply to a user or mention their number!*' }, { quoted: msg });
 
