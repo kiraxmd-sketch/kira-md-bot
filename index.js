@@ -22,7 +22,6 @@ const { getSettings } = require("./lib/database");
 // ============================================================
 // DYNAMIC CONFIG HELPERS & RESET FUNCTION
 // ============================================================
-
 function getBotName(sock) {
     try {
         const currentSock = sock || activeSocket;
@@ -90,16 +89,12 @@ function recordBotUser(sender) {
     const cleanNum = sender.split("@")[0].replace(/[^0-9]/g, "");
     if (cleanNum && !global.totalBotUsers.has(cleanNum)) {
         global.totalBotUsers.add(cleanNum);
-        try {
-            fs.writeFileSync(usersFile, JSON.stringify([...global.totalBotUsers]));
-        } catch (e) {}
+        try { fs.writeFileSync(usersFile, JSON.stringify([...global.totalBotUsers])); } catch (e) {}
     }
 }
 
 const mainOwnerPhone = process.env.OWNER_NUMBER || process.env.BOT_NUMBER || "";
 global.ownerNumber = mainOwnerPhone.replace(/[^0-9]/g, "") + "@s.whatsapp.net";
-
-// 🔥 SUDO USERS INITIATION FIX
 global.sudoUsers = process.env.SUDO_NUMBERS ? process.env.SUDO_NUMBERS.split(",").map((x) => x.trim()).filter(Boolean).map((x) => x.replace(/[^0-9]/g, "") + "@s.whatsapp.net") : [];
 
 global.api = {
@@ -128,15 +123,10 @@ http.createServer((req, res) => { res.writeHead(200, { "Content-Type": "text/pla
 // HELPERS
 // ============================================================
 function getBotNumber(sock) { try { return (sock.user?.id?.split(":")[0]?.replace(/[^0-9]/g, "") || ""); } catch { return ""; } }
-// 🔥 Normalize JID (Removes Linked Device tags properly)
-function normalizeJid(jid) { 
-    if (!jid) return ""; 
-    const number = jid.split(":")[0].split("@")[0].replace(/[^0-9]/g, ""); 
-    return number ? `${number}@s.whatsapp.net` : jid; 
-}
+function normalizeJid(jid) { if (!jid) return ""; const number = jid.split(":")[0].split("@")[0].replace(/[^0-9]/g, ""); return number ? `${number}@s.whatsapp.net` : jid; }
 function getSender(msg, sock) { if (msg.key?.fromMe) { return normalizeJid(sock.user?.id); } const raw = msg.key?.participant || msg.participant || msg.key?.remoteJid; return normalizeJid(raw); }
 
-// 🔥 Empty Message Fix
+// 🔥 Empty Message Fix: Added support for ephemeral (disappearing) & ViewOnce messages
 function getMessageText(msg) { 
     let message = msg.message || {};
     if (message.ephemeralMessage) message = message.ephemeralMessage.message;
@@ -164,19 +154,26 @@ function isOldMessage(msg) { if (!msg.messageTimestamp) return false; const time
 // 🔥 SUDO & OWNER CHECK (FIXED) 🔥
 // ============================================================
 const sudoFile = path.join(process.cwd(), "sudo.json");
+let sudoCache = [];
+let sudoMtime = 0;
 
-// ലൈവ് ആയിട്ട് സ്യൂഡോ ചെക്ക് ചെയ്യാൻ ഇത് സഹായിക്കും
-function getDynamicSudoList() {
-    try {
-        if (!fs.existsSync(sudoFile)) {
+function loadDynamicSudo() { 
+    try { 
+        if (!fs.existsSync(sudoFile)) { 
             fs.writeFileSync(sudoFile, JSON.stringify([]));
-            return [];
-        }
-        const data = JSON.parse(fs.readFileSync(sudoFile, "utf8"));
-        return Array.isArray(data) ? data.map(x => normalizeJid(x)) : [];
-    } catch (err) {
-        return [];
-    }
+            sudoCache = []; sudoMtime = 0; return; 
+        } 
+        const stat = fs.statSync(sudoFile); 
+        if (stat.mtimeMs === sudoMtime) { return; } 
+        const data = JSON.parse( fs.readFileSync(sudoFile, "utf8") ); 
+        sudoCache = Array.isArray(data) ? data.map((x) => normalizeJid(x)).filter(Boolean) : []; 
+        sudoMtime = stat.mtimeMs; 
+    } catch (err) { sudoCache = []; } 
+}
+
+function getDynamicSudoList() {
+    loadDynamicSudo();
+    return sudoCache;
 }
 
 function isSudo(sender) { 
@@ -193,64 +190,21 @@ function isBotOwner(sender, botNumber, msg) {
     return ( cleanSender === owner || cleanSender === bot ); 
 }
 
-function findCommand(commandName) { 
-    const exact = commands.find((cmd) => String(cmd.name).toLowerCase() === commandName); 
-    if (exact) return exact; 
-    return commands.find((cmd) => Array.isArray(cmd.alias) && cmd.alias.some((alias) => String(alias).toLowerCase() === commandName)); 
-}
+function findCommand(commandName) { const exact = commands.find((cmd) => String(cmd.name).toLowerCase() === commandName); if (exact) return exact; return commands.find((cmd) => Array.isArray(cmd.alias) && cmd.alias.some((alias) => String(alias).toLowerCase() === commandName)); }
 
 // ============================================================
 // MESSAGE STORE CLEANER
 // ============================================================
-setInterval(() => { 
-    try { 
-        const now = Date.now(); 
-        const MAX_AGE = 60 * 60 * 1000; 
-        for (const [id, message] of Object.entries(global.messageStore)) { 
-            const timestamp = Number(message.messageTimestamp || 0) * 1000; 
-            if (timestamp && now - timestamp > MAX_AGE) { delete global.messageStore[id]; } 
-        } 
-    } catch (err) {} 
-}, 10 * 60 * 1000);
+setInterval(() => { try { const now = Date.now(); const MAX_AGE = 60 * 60 * 1000; for (const [id, message] of Object.entries(global.messageStore)) { const timestamp = Number(message.messageTimestamp || 0) * 1000; if (timestamp && now - timestamp > MAX_AGE) { delete global.messageStore[id]; } } } catch (err) {} }, 10 * 60 * 1000);
 
 // ============================================================
 // SESSION PREPARATION
 // ============================================================
 function prepareSession() {
-    const sessionDir = "./session"; 
-    const credsPath = path.join(sessionDir, "creds.json");
-    
+    const sessionDir = "./session"; const credsPath = path.join(sessionDir, "creds.json");
     if (!fs.existsSync(sessionDir)) { fs.mkdirSync(sessionDir, { recursive: true }); }
-    
-    if (process.env.SESSION_ID && !fs.existsSync(credsPath)) { 
-        try { 
-            let sessionId = process.env.SESSION_ID.trim(); 
-            if (sessionId.startsWith("KIRA~")) { sessionId = sessionId.slice(5); } 
-            const decoded = Buffer.from(sessionId, "base64").toString(); 
-            fs.writeFileSync(credsPath, decoded); 
-            console.log("✅ SESSION_ID loaded successfully"); 
-        } catch (err) {} 
-    }
-    
-    if (fs.existsSync(credsPath) && process.env.BOT_NUMBER) { 
-        try { 
-            const creds = JSON.parse(fs.readFileSync(credsPath, "utf8")); 
-            const savedNumber = creds?.me?.id?.split(":")[0]?.replace(/[^0-9]/g, ""); 
-            const envNumber = process.env.BOT_NUMBER.replace(/[^0-9]/g, ""); 
-            
-            if (savedNumber && envNumber && savedNumber !== envNumber) { 
-                console.log(`⚠️ Session number changed: ${savedNumber} -> ${envNumber}`); 
-                fs.rmSync(sessionDir, { recursive: true, force: true }); 
-                resetEnvToDefault(); 
-                fs.mkdirSync(sessionDir, { recursive: true }); 
-                if (process.env.SESSION_ID) { 
-                    let sessionId = process.env.SESSION_ID.trim(); 
-                    if (sessionId.startsWith("KIRA~")) { sessionId = sessionId.slice(5); } 
-                    fs.writeFileSync(credsPath, Buffer.from(sessionId, "base64").toString()); 
-                } 
-            } 
-        } catch (err) {} 
-    }
+    if (process.env.SESSION_ID && !fs.existsSync(credsPath)) { try { let sessionId = process.env.SESSION_ID.trim(); if (sessionId.startsWith("KIRA~")) { sessionId = sessionId.slice(5); } const decoded = Buffer.from(sessionId, "base64").toString(); fs.writeFileSync(credsPath, decoded); console.log("✅ SESSION_ID loaded successfully"); } catch (err) {} }
+    if (fs.existsSync(credsPath) && process.env.BOT_NUMBER) { try { const creds = JSON.parse(fs.readFileSync(credsPath, "utf8")); const savedNumber = creds?.me?.id?.split(":")[0]?.replace(/[^0-9]/g, ""); const envNumber = process.env.BOT_NUMBER.replace(/[^0-9]/g, ""); if (savedNumber && envNumber && savedNumber !== envNumber) { console.log(`⚠️ Session number changed: ${savedNumber} -> ${envNumber}`); fs.rmSync(sessionDir, { recursive: true, force: true }); resetEnvToDefault(); fs.mkdirSync(sessionDir, { recursive: true }); if (process.env.SESSION_ID) { let sessionId = process.env.SESSION_ID.trim(); if (sessionId.startsWith("KIRA~")) { sessionId = sessionId.slice(5); } fs.writeFileSync(credsPath, Buffer.from(sessionId, "base64").toString()); } } } catch (err) {} }
 }
 
 // ============================================================
@@ -278,10 +232,7 @@ async function startKira() {
             browser: Browsers.macOS("Chrome"),
             markOnlineOnConnect: false,
             generateHighQualityLinkPreview: false,
-            getMessage: async (key) => { 
-                try { return (global.messageStore[key.id]?.message || { conversation: "" }); } 
-                catch { return { conversation: "" }; } 
-            }
+            getMessage: async (key) => { try { return (global.messageStore[key.id]?.message || { conversation: "" }); } catch { return { conversation: "" }; } }
         });
 
         activeSocket = sock; starting = false;
@@ -338,10 +289,7 @@ async function startKira() {
                         global.kiraStartupDone = true;
                         setTimeout(async () => {
                             try { const invite = process.env.AUTO_JOIN_GROUP; if (invite) { await sock.groupAcceptInvite(invite); } } catch (err) {}
-                            try { 
-                                const owner = normalizeJid(global.ownerNumber); 
-                                if (owner) { await sock.sendMessage(owner, { text: `╭━━━〔 KIRA X MD 〕━━━⬣\n\n✅ *Connected Successfully*\n🛡️ *Status:* Active\n🤖 *Bot:* KIRA X MD\n\n╰━━━━━━━━━━━━━━⬣` }); } 
-                            } catch (err) {}
+                            try { const owner = normalizeJid(global.ownerNumber); if (owner) { await sock.sendMessage(owner, { text: `╭━━━〔 KIRA X MD 〕━━━⬣\n\n✅ *Connected Successfully*\n🛡️ *Status:* Active\n🤖 *Bot:* KIRA X MD\n\n╰━━━━━━━━━━━━━━⬣` }); } } catch (err) {}
                         }, 2000);
                     }
                 }
@@ -349,12 +297,8 @@ async function startKira() {
                 if (connection === "close") {
                     const statusCode = lastDisconnect?.error?.output?.statusCode;
                     const loggedOut = statusCode === DisconnectReason.loggedOut || statusCode === 401 || statusCode === 403;
-                    console.log("⚠️ Connection closed:", statusCode);
-                    if (loggedOut) { 
-                        console.log("❌ WhatsApp session logged out."); 
-                        try { fs.rmSync("./session", { recursive: true, force: true }); resetEnvToDefault(); } catch {} 
-                        process.exit(1); 
-                    }
+                    console.log("⚠️️ Connection closed:", statusCode);
+                    if (loggedOut) { console.log("❌ WhatsApp session logged out."); try { fs.rmSync("./session", { recursive: true, force: true }); resetEnvToDefault(); } catch {} process.exit(1); }
                     if (reconnectTimer) return;
                     reconnectTimer = setTimeout(async () => { reconnectTimer = null; try { await startKira(); } catch (err) {} }, 3000);
                 }
@@ -364,19 +308,7 @@ async function startKira() {
         sock.ev.on("creds.update", saveCreds);
 
         sock.ev.on("call", async (calls) => {
-            try { 
-                const botNumber = getBotNumber(sock); 
-                if (!botNumber) return; 
-                const config = getSettings(botNumber); 
-                if (!config.callReject) return; 
-                
-                for (const call of calls) { 
-                    if (call.status === "offer") { 
-                        try { await sock.rejectCall(call.id, call.from); } catch {} 
-                        try { await sock.sendMessage(call.from, { text: "📵 *Calls are not allowed.*\nPlease send a message instead." }); } catch {} 
-                    } 
-                } 
-            } catch (err) {}
+            try { const botNumber = getBotNumber(sock); if (!botNumber) return; const config = getSettings(botNumber); if (!config.callReject) return; for (const call of calls) { if (call.status === "offer") { try { await sock.rejectCall(call.id, call.from); } catch {} try { await sock.sendMessage(call.from, { text: "📵 *Calls are not allowed.*\nPlease send a message instead." }); } catch {} } } } catch (err) {}
         });
 
         const processedDeletes = new Set();
@@ -466,7 +398,6 @@ async function startKira() {
                     const isOwner = isBotOwner(sender, botNumber, msg); 
                     const sudo = isSudo(sender); 
                     const isOwnerOrSudo = isOwner || sudo; 
-                    
                     const text = getMessageText(msg);
 
                     // 🎯 REAL USER REGISTRATION
@@ -474,7 +405,7 @@ async function startKira() {
                         recordBotUser(sender);
                     }
 
-                    // 🔥 AUTO TYPING & AUTO RECORDING PRESENCE 🔥
+                    // 🔥 AUTO TYPING & AUTO RECORDING PRESENCE
                     if (!msg.key.fromMe) {
                         if (config.autoTyping) {
                             await sock.sendPresenceUpdate('composing', jid).catch(() => {});
@@ -540,9 +471,8 @@ async function startKira() {
                                     const mode = config.antilinkMode?.[jid] || "delete"; 
                                     try { await sock.sendMessage(jid, { delete: msg.key }); } catch {} 
                                     
-                                    if (mode === "warn") { 
-                                        await sock.sendMessage(jid, { text: `⚠️ *@${sender.split("@")[0]}*, WhatsApp group links are not allowed here.`, mentions: [sender] }); 
-                                    } else if (mode === "kick") { 
+                                    if (mode === "warn") { await sock.sendMessage(jid, { text: `⚠️ *@${sender.split("@")[0]}*, WhatsApp group links are not allowed here.`, mentions: [sender] }); } 
+                                    else if (mode === "kick") { 
                                         await sock.sendMessage(jid, { text: `🚫 *@${sender.split("@")[0]}* sent a group link. Removing...`, mentions: [sender] }); 
                                         setTimeout(async () => { try { await sock.groupParticipantsUpdate(jid, [member?.id || realSender], "remove"); } catch {} }, 1000); 
                                     } 
