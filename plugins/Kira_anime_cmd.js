@@ -1,19 +1,30 @@
 // plugins/Kira_anime_cmd.js - KIRA X MD (Anime Reaction & Maker Commands)
 const axios = require('axios');
 
-// ─── HELPER: FETCH URL FROM API ───
+// ─── HELPER: SMART API URL FETCHER ───
 async function fetchAnimeUrl(type) {
     const apiUrl = `https://api.nexray.eu.cc/random/anime?type=${type}`;
     for (let i = 1; i <= 2; i++) {
         try {
             const res = await axios.get(apiUrl, { timeout: 10000, headers: { "User-Agent": "Mozilla/5.0" } });
-            if (res.data?.status && res.data?.result) {
-                return res.data.result; // Returns media URL
+            const data = res.data;
+
+            // Smart extraction for different possible JSON structures
+            const mediaUrl = 
+                data?.result || 
+                data?.url || 
+                data?.data?.url || 
+                data?.data || 
+                (typeof data === 'string' ? data : null);
+
+            if (mediaUrl && typeof mediaUrl === 'string' && mediaUrl.startsWith('http')) {
+                return mediaUrl;
             }
         } catch (err) {
-            if (i === 2) throw new Error("API completely failed");
+            if (i === 2) throw new Error("API failed to return valid URL");
         }
     }
+    throw new Error("No media URL found");
 }
 
 // ─── HELPER: DOWNLOAD BUFFER AND SEND ───
@@ -22,18 +33,17 @@ async function sendAnimeReaction(sock, msg, type, description) {
     try {
         await sock.sendMessage(jid, { react: { text: "⏳", key: msg.key } });
         
-        // 1. Get the media URL from API
+        // 1. Get the media URL from API safely
         const mediaUrl = await fetchAnimeUrl(type);
-        if (!mediaUrl) throw new Error("No media URL found");
 
-        // 2. Download the media as buffer (Like we did in bratanime)
+        // 2. Download the media as buffer
         const mediaRes = await axios.get(mediaUrl, { 
             responseType: 'arraybuffer', 
             timeout: 15000,
             headers: { "User-Agent": "Mozilla/5.0" } 
         });
         const mediaBuffer = Buffer.from(mediaRes.data);
-        const isGif = mediaUrl.endsWith(".gif");
+        const isGif = mediaUrl.endsWith(".gif") || mediaUrl.includes("gif");
 
         // 3. Send to WhatsApp
         if (isGif) {
@@ -53,7 +63,7 @@ async function sendAnimeReaction(sock, msg, type, description) {
     } catch (err) {
         console.error(`Anime API Error (${type}):`, err.message);
         await sock.sendMessage(jid, { react: { text: "❌", key: msg.key } });
-        await sock.sendMessage(jid, { text: "❌ *Failed to fetch image. Please try again.*" }, { quoted: msg });
+        await sock.sendMessage(jid, { text: `❌ *Failed to fetch ${type}. Please try again.*` }, { quoted: msg });
     }
 }
 
