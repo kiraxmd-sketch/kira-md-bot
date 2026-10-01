@@ -1,42 +1,50 @@
 // plugins/Kira_anime_cmd.js - KIRA X MD (Anime Reaction & Maker Commands)
 const axios = require('axios');
 
-// ─── HELPER: 2x RETRY API FETCHER (10s Timeout) ───
-async function fetchAnimeApi(type) {
+// ─── HELPER: FETCH URL FROM API ───
+async function fetchAnimeUrl(type) {
     const apiUrl = `https://api.nexray.eu.cc/random/anime?type=${type}`;
     for (let i = 1; i <= 2; i++) {
         try {
             const res = await axios.get(apiUrl, { timeout: 10000, headers: { "User-Agent": "Mozilla/5.0" } });
             if (res.data?.status && res.data?.result) {
-                return res.data.result;
+                return res.data.result; // Returns media URL
             }
-            throw new Error("Invalid Response");
         } catch (err) {
-            if (i === 2) throw err;
+            if (i === 2) throw new Error("API completely failed");
         }
     }
 }
 
-// ─── HELPER: SEND ANIME REACTION ───
+// ─── HELPER: DOWNLOAD BUFFER AND SEND ───
 async function sendAnimeReaction(sock, msg, type, description) {
     const jid = msg.key.remoteJid;
     try {
         await sock.sendMessage(jid, { react: { text: "⏳", key: msg.key } });
-        const mediaUrl = await fetchAnimeApi(type);
         
+        // 1. Get the media URL from API
+        const mediaUrl = await fetchAnimeUrl(type);
         if (!mediaUrl) throw new Error("No media URL found");
 
+        // 2. Download the media as buffer (Like we did in bratanime)
+        const mediaRes = await axios.get(mediaUrl, { 
+            responseType: 'arraybuffer', 
+            timeout: 15000,
+            headers: { "User-Agent": "Mozilla/5.0" } 
+        });
+        const mediaBuffer = Buffer.from(mediaRes.data);
         const isGif = mediaUrl.endsWith(".gif");
 
+        // 3. Send to WhatsApp
         if (isGif) {
             await sock.sendMessage(jid, { 
-                video: { url: mediaUrl }, 
+                video: mediaBuffer, 
                 gifPlayback: true,
                 caption: `🌸 *${description}*` 
             }, { quoted: msg });
         } else {
             await sock.sendMessage(jid, { 
-                image: { url: mediaUrl }, 
+                image: mediaBuffer, 
                 caption: `🌸 *${description}*` 
             }, { quoted: msg });
         }
@@ -51,159 +59,107 @@ async function sendAnimeReaction(sock, msg, type, description) {
 
 module.exports = [
     {
-        name: 'neko',
-        category: 'anime',
-        description: 'Random Neko anime image',
+        name: 'neko', category: 'anime', description: 'Random Neko anime image',
         async execute(sock, msg) { await sendAnimeReaction(sock, msg, 'neko', 'Random Neko'); }
     },
     {
-        name: 'shinobu',
-        category: 'anime',
-        description: 'Random Shinobu anime image',
+        name: 'shinobu', category: 'anime', description: 'Random Shinobu anime image',
         async execute(sock, msg) { await sendAnimeReaction(sock, msg, 'shinobu', 'Shinobu Oshino'); }
     },
     {
-        name: 'megumin',
-        category: 'anime',
-        description: 'Random Megumin anime image',
+        name: 'megumin', category: 'anime', description: 'Random Megumin anime image',
         async execute(sock, msg) { await sendAnimeReaction(sock, msg, 'megumin', 'Megumin'); }
     },
     {
-        name: 'bully',
-        category: 'anime',
-        description: 'Random bully anime reaction',
+        name: 'bully', category: 'anime', description: 'Random bully anime reaction',
         async execute(sock, msg) { await sendAnimeReaction(sock, msg, 'bully', 'Anime Bully Reaction'); }
     },
     {
-        name: 'cuddle',
-        category: 'anime',
-        description: 'Random cuddle anime reaction',
+        name: 'cuddle', category: 'anime', description: 'Random cuddle anime reaction',
         async execute(sock, msg) { await sendAnimeReaction(sock, msg, 'cuddle', 'Anime Cuddle'); }
     },
     {
-        name: 'cry',
-        category: 'anime',
-        description: 'Random cry anime reaction',
+        name: 'cry', category: 'anime', description: 'Random cry anime reaction',
         async execute(sock, msg) { await sendAnimeReaction(sock, msg, 'cry', 'Anime Cry'); }
     },
     {
-        name: 'awoo',
-        category: 'anime',
-        description: 'Random awoo anime reaction',
+        name: 'awoo', category: 'anime', description: 'Random awoo anime reaction',
         async execute(sock, msg) { await sendAnimeReaction(sock, msg, 'awoo', 'Anime Awoo'); }
     },
     {
-        name: 'lick',
-        category: 'anime',
-        description: 'Random lick anime reaction',
+        name: 'lick', category: 'anime', description: 'Random lick anime reaction',
         async execute(sock, msg) { await sendAnimeReaction(sock, msg, 'lick', 'Anime Lick'); }
     },
     {
-        name: 'pat',
-        category: 'anime',
-        description: 'Random pat anime reaction',
+        name: 'pat', category: 'anime', description: 'Random pat anime reaction',
         async execute(sock, msg) { await sendAnimeReaction(sock, msg, 'pat', 'Anime Pat'); }
     },
     {
-        name: 'smug',
-        category: 'anime',
-        description: 'Random smug anime reaction',
+        name: 'smug', category: 'anime', description: 'Random smug anime reaction',
         async execute(sock, msg) { await sendAnimeReaction(sock, msg, 'smug', 'Anime Smug'); }
     },
     {
-        name: 'bonk',
-        category: 'anime',
-        description: 'Random bonk anime reaction',
+        name: 'bonk', category: 'anime', description: 'Random bonk anime reaction',
         async execute(sock, msg) { await sendAnimeReaction(sock, msg, 'bonk', 'Anime Bonk'); }
     },
     {
-        name: 'yeet',
-        category: 'anime',
-        description: 'Random yeet anime reaction',
+        name: 'yeet', category: 'anime', description: 'Random yeet anime reaction',
         async execute(sock, msg) { await sendAnimeReaction(sock, msg, 'yeet', 'Anime Yeet'); }
     },
     {
-        name: 'blush',
-        category: 'anime',
-        description: 'Random blush anime reaction',
+        name: 'blush', category: 'anime', description: 'Random blush anime reaction',
         async execute(sock, msg) { await sendAnimeReaction(sock, msg, 'blush', 'Anime Blush'); }
     },
     {
-        name: 'smile',
-        category: 'anime',
-        description: 'Random smile anime reaction',
+        name: 'smile', category: 'anime', description: 'Random smile anime reaction',
         async execute(sock, msg) { await sendAnimeReaction(sock, msg, 'smile', 'Anime Smile'); }
     },
     {
-        name: 'highfive',
-        category: 'anime',
-        description: 'Random highfive anime reaction',
+        name: 'highfive', category: 'anime', description: 'Random highfive anime reaction',
         async execute(sock, msg) { await sendAnimeReaction(sock, msg, 'highfive', 'Anime Highfive'); }
     },
     {
-        name: 'handhold',
-        category: 'anime',
-        description: 'Random handhold anime reaction',
+        name: 'handhold', category: 'anime', description: 'Random handhold anime reaction',
         async execute(sock, msg) { await sendAnimeReaction(sock, msg, 'handhold', 'Anime Handhold'); }
     },
     {
-        name: 'nom',
-        category: 'anime',
-        description: 'Random nom anime reaction',
+        name: 'nom', category: 'anime', description: 'Random nom anime reaction',
         async execute(sock, msg) { await sendAnimeReaction(sock, msg, 'nom', 'Anime Nom'); }
     },
     {
-        name: 'bite',
-        category: 'anime',
-        description: 'Random bite anime reaction',
+        name: 'bite', category: 'anime', description: 'Random bite anime reaction',
         async execute(sock, msg) { await sendAnimeReaction(sock, msg, 'bite', 'Anime Bite'); }
     },
     {
-        name: 'glomp',
-        category: 'anime',
-        description: 'Random glomp anime reaction',
+        name: 'glomp', category: 'anime', description: 'Random glomp anime reaction',
         async execute(sock, msg) { await sendAnimeReaction(sock, msg, 'glomp', 'Anime Glomp'); }
     },
     {
-        name: 'slap',
-        category: 'anime',
-        description: 'Random slap anime reaction',
+        name: 'slap', category: 'anime', description: 'Random slap anime reaction',
         async execute(sock, msg) { await sendAnimeReaction(sock, msg, 'slap', 'Anime Slap'); }
     },
     {
-        name: 'kill',
-        category: 'anime',
-        description: 'Random kill anime reaction',
+        name: 'kill', category: 'anime', description: 'Random kill anime reaction',
         async execute(sock, msg) { await sendAnimeReaction(sock, msg, 'kill', 'Anime Kill'); }
     },
     {
-        name: 'happy',
-        category: 'anime',
-        description: 'Random happy anime reaction',
+        name: 'happy', category: 'anime', description: 'Random happy anime reaction',
         async execute(sock, msg) { await sendAnimeReaction(sock, msg, 'happy', 'Anime Happy'); }
     },
     {
-        name: 'wink',
-        category: 'anime',
-        description: 'Random wink anime reaction',
+        name: 'wink', category: 'anime', description: 'Random wink anime reaction',
         async execute(sock, msg) { await sendAnimeReaction(sock, msg, 'wink', 'Anime Wink'); }
     },
     {
-        name: 'poke',
-        category: 'anime',
-        description: 'Random poke anime reaction',
+        name: 'poke', category: 'anime', description: 'Random poke anime reaction',
         async execute(sock, msg) { await sendAnimeReaction(sock, msg, 'poke', 'Anime Poke'); }
     },
     {
-        name: 'dance',
-        category: 'anime',
-        description: 'Random dance anime reaction',
+        name: 'dance', category: 'anime', description: 'Random dance anime reaction',
         async execute(sock, msg) { await sendAnimeReaction(sock, msg, 'dance', 'Anime Dance'); }
     },
     {
-        name: 'cringe',
-        category: 'anime',
-        description: 'Random cringe anime reaction',
+        name: 'cringe', category: 'anime', description: 'Random cringe anime reaction',
         async execute(sock, msg) { await sendAnimeReaction(sock, msg, 'cringe', 'Anime Cringe'); }
     },
     // ==========================================
